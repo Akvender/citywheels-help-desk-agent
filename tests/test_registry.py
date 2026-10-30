@@ -1,0 +1,77 @@
+import json
+from datetime import datetime
+
+from helpdesk.config import NOW
+from helpdesk.data import PolicySection, load_bookings, load_policy_sections
+from helpdesk.tools.registry import TOOL_SCHEMAS, build_tools, dispatch
+
+
+def make_tools():
+    return build_tools(load_bookings(), load_policy_sections(), NOW)
+
+
+def test_schemas_name_the_three_tools():
+    names = [schema["function"]["name"] for schema in TOOL_SCHEMAS]
+    assert names == ["search_policies", "get_booking", "calculate_refund"]
+
+
+def test_cancel_at_is_optional_in_schema():
+    refund = TOOL_SCHEMAS[2]["function"]["parameters"]
+    assert refund["required"] == ["booking_id"]
+    assert "cancel_at" in refund["properties"]
+
+
+def test_dispatch_runs_tool_and_returns_json_text():
+    result = json.loads(dispatch(make_tools(), "get_booking", '{"booking_id": "CW-1002"}'))
+    assert result["found"] is True
+
+
+def test_dispatch_uses_bound_now_for_refund():
+    result = json.loads(dispatch(make_tools(), "calculate_refund", '{"booking_id": "CW-1002"}'))
+    assert result["cancel_at"] == NOW.isoformat()
+    assert result["total_refund_eur"] == "340.00"
+
+
+def test_dispatch_search_uses_bound_sections():
+    sections = [PolicySection("x.md", "Parking", "Parking is free.")]
+    tools = build_tools({}, sections, NOW)
+    result = json.loads(dispatch(tools, "search_policies", '{"query": "parking free"}'))
+    assert result["results"][0]["heading"] == "Parking"
+
+
+def test_unknown_tool():
+    result = json.loads(dispatch(make_tools(), "drop_tables", "{}"))
+    assert result == {"error": "Unknown tool: drop_tables"}
+
+
+def test_malformed_json():
+    assert "error" in json.loads(dispatch(make_tools(), "get_booking", "{not json"))
+
+
+def test_arguments_must_be_an_object():
+    assert "error" in json.loads(dispatch(make_tools(), "get_booking", "[1, 2]"))
+
+
+def test_empty_arguments_string_counts_as_no_arguments():
+    assert "error" in json.loads(dispatch(make_tools(), "get_booking", ""))
+
+
+def test_wrong_argument_name():
+    assert "error" in json.loads(dispatch(make_tools(), "get_booking", '{"id": "CW-1002"}'))
+
+
+def test_missing_argument():
+    assert "error" in json.loads(dispatch(make_tools(), "calculate_refund", "{}"))
+
+
+def test_unexpected_exception_is_reported_by_type_only():
+    def broken(**_):
+        raise ValueError("secret detail")
+
+    result = json.loads(dispatch({"boom": broken}, "boom", "{}"))
+    assert result == {"error": "Tool failed: ValueError"}
+
+
+def test_non_json_values_are_stringified():
+    tools = {"when": lambda: {"at": datetime(2026, 1, 1)}}
+    assert json.loads(dispatch(tools, "when", "{}"))["at"].startswith("2026-01-01")
