@@ -16,5 +16,11 @@
     "comment": "Retrieval bug, not a wording problem: the synonym 'hour' hijacked the query and the 'Bike rental' heading was made only of ignored generic words. Fixed in code afterwards.",
     "run": 1,
     "commit": "3decf71"
+  },
+  "polish-refund": {
+    "label": "check too strict",
+    "comment": "The answer was correct ('**340.00** EUR', plus the 40.00 + 300.00 breakdown and the card refund), but the markdown bold sits between the number and the currency, so the amount parser did not read 340.00. Not fixed silently: left as a known parser gap.",
+    "run": 2,
+    "commit": "435f7e7"
   }
 }
