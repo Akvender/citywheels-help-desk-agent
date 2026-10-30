@@ -103,12 +103,16 @@ def summarize(records: list[dict]) -> dict:
     }
 
 
-def adjusted_summary(records: list[dict], triage: dict) -> dict:
-    """Like summarize(), but failed attempts of questions triaged 'check too strict' are left out."""
-    kept = [
-        r for r in records
-        if not (r["status"] == "fail" and triage.get(r["id"], {}).get("label") == "check too strict")
-    ]
+def adjusted_summary(records: list[dict], triage: dict, sha: str) -> dict:
+    """Like summarize(), but failed attempts of questions triaged 'check too strict' are left out.
+
+    Only labels written for the current commit count: a label from an older run must not change a newer score.
+    """
+    def excluded(r: dict) -> bool:
+        entry = triage.get(r["id"], {})
+        return r["status"] == "fail" and entry.get("label") == "check too strict" and entry.get("commit") == sha
+
+    kept = [r for r in records if not excluded(r)]
     return summarize(kept)
 
 
@@ -188,8 +192,8 @@ questions.json were added after the first run and were not part of it.
 
 Triage is a manual label written after reading the failures (eval/triage.json). The checks are
 never edited silently after seeing results: a check that was wrong is labelled "check too strict",
-fixed in a visible commit, and the "adjusted" score leaves those failed attempts out. A label
-marked STALE belongs to an older run or commit and must be re-checked."""
+fixed in a visible commit, and the "adjusted" score leaves those failed attempts out, but only for labels written for the current
+commit. A label marked STALE belongs to an older commit, is ignored by the adjusted score and must be re-checked."""
 
 
 def header_lines(model_name: str, runs: int, records: list[dict]) -> list[str]:
@@ -208,8 +212,8 @@ def header_lines(model_name: str, runs: int, records: list[dict]) -> list[str]:
     return lines + [f"- Date: {date}", ""]
 
 
-def summary_lines(records: list[dict], runs: int, triage: dict) -> list[str]:
-    stats, adjusted = summarize(records), adjusted_summary(records, triage)
+def summary_lines(records: list[dict], runs: int, triage: dict, sha: str) -> list[str]:
+    stats, adjusted = summarize(records), adjusted_summary(records, triage, sha)
     buckets = list(stability(records).values())
     infra_ids = sorted({r["id"] for r in records if r["status"] == "infra_error"})
     stable_note = " (Stability is not meaningful with 1 run; use --runs 3.)" if runs < 2 else ""
@@ -217,6 +221,7 @@ def summary_lines(records: list[dict], runs: int, triage: dict) -> list[str]:
     return [
         f"**Raw: passed {stats['passed']} / {stats['graded']} attempts. Adjusted (without failed attempts "
         f"triaged 'check too strict'): {adjusted['passed']} / {adjusted['graded']}.**",
+        "Adjusted uses only triage labels written for the current commit; STALE labels are shown for context only.",
         "",
         f"Questions: {buckets.count('always pass')} always pass, {buckets.count('flaky')} flaky, "
         f"{buckets.count('always fail')} always fail.{stable_note}",
@@ -229,7 +234,7 @@ def summary_lines(records: list[dict], runs: int, triage: dict) -> list[str]:
 def build_report(records: list[dict], model_name: str, runs: int, triage: dict | None = None) -> str:
     triage = load_triage() if triage is None else triage
     sha, _ = git_state()
-    lines = header_lines(model_name, runs, records) + summary_lines(records, runs, triage)
+    lines = header_lines(model_name, runs, records) + summary_lines(records, runs, triage, sha)
     lines += [
         "| Question | Category | Passed | Stability | Tools (first run) | Failure reasons | Triage |",
         "|---|---|---|---|---|---|---|",

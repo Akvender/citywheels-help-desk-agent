@@ -196,9 +196,19 @@ def test_stability_buckets_ignore_infra_errors():
 
 def test_adjusted_summary_leaves_out_only_failed_check_too_strict_attempts():
     records = [record("a", "pass"), record("a", "fail", 2, ["x"]), record("b", "fail", 1, ["y"])]
-    triage = {"a": {"label": "check too strict"}, "b": {"label": "agent error"}}
+    triage = {
+        "a": {"label": "check too strict", "commit": "abc1234"},
+        "b": {"label": "agent error", "commit": "abc1234"},
+    }
     assert run_eval.summarize(records)["passed"] == 1
-    adjusted = run_eval.adjusted_summary(records, triage)
+    adjusted = run_eval.adjusted_summary(records, triage, "abc1234")
+    assert (adjusted["passed"], adjusted["graded"]) == (1, 2)
+
+
+def test_adjusted_summary_ignores_stale_triage_labels():
+    records = [record("a", "pass"), record("a", "fail", 2, ["x"])]
+    triage = {"a": {"label": "check too strict", "commit": "old1234"}}
+    adjusted = run_eval.adjusted_summary(records, triage, "new5678")
     assert (adjusted["passed"], adjusted["graded"]) == (1, 2)
 
 
@@ -220,8 +230,9 @@ def test_report_shows_commit_buckets_triage_and_raw_vs_adjusted():
     records = [record("a", "pass"), record("b", "fail", 1, ["bad"])]
     triage = {"b": {"label": "check too strict", "comment": "zero counted", "run": 1, "commit": "old1234"}}
     report = run_eval.build_report(records, "some-model", 1, triage)
+    assert "only triage labels written for the current commit" in report
     assert "- Commit: " in report and "- Model: some-model" in report and "- Runs per question: 1" in report
-    assert "Raw: passed 1 / 2" in report and "Adjusted" in report and ": 1 / 1" in report
+    assert "Raw: passed 1 / 2" in report and "Adjusted" in report and ": 1 / 2" in report
     assert "check too strict (run 1 @ old1234, STALE): zero counted" in report
     assert "not meaningful with 1 run" in report
     assert "INCOMPLETE" not in report
