@@ -55,7 +55,7 @@
     "category": "booking",
     "question": "Which dates is my booking CW-1009 for?",
     "expected_tools": ["get_booking"],
-    "must_contain_any": [["15"], ["22"]],
+    "must_contain_any": [["15 June", "June 15", "2026-06-15", "15.06", "15th of June", "June 15th"], ["22 June", "June 22", "2026-06-22", "22.06", "22nd of June", "June 22nd"]],
     "note": "15 June to 22 June 2026."
   },
   {
@@ -72,7 +72,7 @@
     "category": "policy",
     "question": "Does my 12-year-old have to wear a helmet?",
     "expected_tools": ["search_policies"],
-    "must_contain_any": [["required", "must", "mandatory", "have to", "yes"]],
+    "must_contain_any": [["required", "mandatory", "must wear", "has to wear", "have to wear", "needs to wear"], ["16"]],
     "note": "Helmets are free and required for riders under 16."
   },
   {
@@ -88,7 +88,8 @@
     "category": "policy",
     "question": "Am I allowed to take the bike with me to Germany?",
     "expected_tools": ["search_policies"],
-    "must_contain_any": [["not allowed", "no", "cannot", "can't", "only inside", "within the country", "inside the country"]],
+    "must_contain_any": [["not allowed", "not permitted", "cannot", "can't", "is prohibited"]],
+    "must_not_contain": ["yes, you can take", "you are allowed to take"],
     "note": "Inside the country only; taking a bike abroad is not allowed."
   },
   {
