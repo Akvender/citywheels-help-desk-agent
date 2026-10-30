@@ -1,6 +1,6 @@
 import pytest
 
-from helpdesk.tools.booking_id import normalize_booking_id
+from helpdesk.tools.booking_id import echo_booking_id, normalize_booking_id
 
 
 @pytest.mark.parametrize(
@@ -22,3 +22,8 @@ from helpdesk.tools.booking_id import normalize_booking_id
 )
 def test_normalize_booking_id(raw, expected):
     assert normalize_booking_id(raw) == expected
+
+
+def test_echo_is_cut_to_50_chars_and_only_for_strings():
+    assert echo_booking_id("x" * 500) == "x" * 50
+    assert echo_booking_id(12345) is None

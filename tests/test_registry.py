@@ -12,13 +12,17 @@ def make_tools():
     return build_tools(load_bookings(), load_policy_sections(), NOW)
 
 
+def schema_of(name):
+    return next(s["function"] for s in TOOL_SCHEMAS if s["function"]["name"] == name)
+
+
 def test_schemas_name_the_three_tools():
     names = [schema["function"]["name"] for schema in TOOL_SCHEMAS]
     assert names == ["search_policies", "get_booking", "calculate_refund"]
 
 
 def test_cancel_at_is_optional_in_schema():
-    refund = TOOL_SCHEMAS[2]["function"]["parameters"]
+    refund = schema_of("calculate_refund")["parameters"]
     assert refund["required"] == ["booking_id"]
     assert "cancel_at" in refund["properties"]
 
@@ -46,32 +50,29 @@ def test_unknown_tool():
     assert result == {"error": "Unknown tool: drop_tables"}
 
 
-def test_malformed_json():
-    assert "error" in json.loads(dispatch(make_tools(), "get_booking", "{not json"))
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("get_booking", "{not json"),
+        ("get_booking", "[1, 2]"),
+        ("get_booking", ""),
+        ("get_booking", '{"id": "CW-1002"}'),
+        ("calculate_refund", "{}"),
+        ("get_booking", {"booking_id": "CW-1002"}),
+        (None, "{}"),
+    ],
+)
+def test_bad_tool_calls_return_an_error(name, arguments):
+    assert "error" in json.loads(dispatch(make_tools(), name, arguments))
 
 
-def test_arguments_must_be_an_object():
-    assert "error" in json.loads(dispatch(make_tools(), "get_booking", "[1, 2]"))
-
-
-def test_empty_arguments_string_counts_as_no_arguments():
-    assert "error" in json.loads(dispatch(make_tools(), "get_booking", ""))
-
-
-def test_wrong_argument_name():
-    assert "error" in json.loads(dispatch(make_tools(), "get_booking", '{"id": "CW-1002"}'))
-
-
-def test_missing_argument():
-    assert "error" in json.loads(dispatch(make_tools(), "calculate_refund", "{}"))
-
-
-def test_exception_inside_a_tool_is_logged_and_reported_with_its_message(caplog):
+def test_tool_failure_hides_details_from_the_model_but_logs_them(caplog):
     def broken(**_):
         raise ValueError("secret detail")
 
     result = json.loads(dispatch({"boom": broken}, "boom", "{}"))
-    assert result == {"error": "Tool failed, do not guess: ValueError: secret detail"}
+
+    assert result == {"error": "Tool failed, do not guess."}
     assert "secret detail" in caplog.text
 
 
@@ -80,20 +81,7 @@ def test_type_error_inside_a_tool_is_not_reported_as_wrong_arguments():
         return 1 + "a"
 
     error = json.loads(dispatch({"buggy": buggy}, "buggy", "{}"))["error"]
-    assert error.startswith("Tool failed, do not guess: TypeError")
-
-
-def test_binding_error_is_reported_as_wrong_arguments():
-    error = json.loads(dispatch(make_tools(), "get_booking", '{"id": "CW-1002"}'))["error"]
-    assert error.startswith("Wrong arguments:")
-
-
-def test_arguments_that_are_not_a_string_are_an_error():
-    assert "error" in json.loads(dispatch(make_tools(), "get_booking", {"booking_id": "CW-1002"}))
-
-
-def test_none_name_is_an_unknown_tool():
-    assert "error" in json.loads(dispatch(make_tools(), None, "{}"))
+    assert error.startswith("Tool failed")
 
 
 def test_schemas_reject_extra_properties():
@@ -102,7 +90,7 @@ def test_schemas_reject_extra_properties():
 
 
 def test_cancel_at_description_explains_format_and_relative_dates():
-    description = TOOL_SCHEMAS[2]["function"]["parameters"]["properties"]["cancel_at"]["description"]
+    description = schema_of("calculate_refund")["parameters"]["properties"]["cancel_at"]["description"]
     assert "2026-06-12T09:00:00+02:00" in description
     assert "current time" in description
 

@@ -29,9 +29,8 @@ def test_returns_booking_with_money_as_two_decimal_strings(bookings):
     assert result["booking"]["status"] == "confirmed"
 
 
-@pytest.mark.parametrize("raw", ["cw1002", " CW-1002 ", "cw 1002"])
-def test_normalizes_booking_number(bookings, raw):
-    assert get_booking(bookings, raw)["found"] is True
+def test_normalizes_booking_number(bookings):  # smoke test; the rules are in test_booking_id.py
+    assert get_booking(bookings, " cw1002 ")["found"] is True
 
 
 def test_unknown_booking_number(bookings):

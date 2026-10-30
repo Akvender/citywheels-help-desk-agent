@@ -53,6 +53,8 @@ def run_agent(
             return AgentResult(answer, trace, messages, "answer")
         for call in calls:
             # The model's output is untrusted: any field may be missing, so nothing here can raise.
+            if not isinstance(call, dict):
+                continue
             function = call.get("function") or {}
             name, arguments = function.get("name"), function.get("arguments")
             result = dispatch(tools, name, arguments)

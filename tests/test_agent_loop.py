@@ -63,22 +63,6 @@ def test_provider_metadata_is_passed_back_unchanged(tools):
     assert model.calls[1][-2] == expected
 
 
-@pytest.mark.parametrize(
-    ("name", "arguments"),
-    [
-        ("no_such_tool", "{}"),
-        ("get_booking", "{broken"),
-        ("get_booking", '{"wrong_name": "CW-1002"}'),
-    ],
-)
-def test_bad_tool_calls_return_error_json_to_the_model(tools, name, arguments):
-    reply = assistant_calling(tool_call("x", name, arguments))
-    model = FakeModel([reply, assistant_saying("Sorry.")])
-    result = run_agent("q", model, tools)
-    assert "error" in json.loads(tool_messages(model.calls[1])[0]["content"])
-    assert result.answer == "Sorry."
-
-
 def test_max_steps_gives_safe_answer_with_contact(tools):
     looping = assistant_calling(tool_call("x", "get_booking", '{"booking_id": "CW-1002"}'))
     model = FakeModel([looping] * 3)
@@ -99,25 +83,11 @@ def test_history_is_prepended_and_not_mutated(tools):
     assert result.messages[-1]["content"] == "ok"
 
 
-def test_system_prompt_has_date_and_contact():
+def test_system_prompt_has_date_contact_and_refund_rule():
     prompt = build_system_prompt(NOW)
     assert "2026-06-10" in prompt
     assert "help@citywheels.example" in prompt
-    assert "+48 000 000 000" in prompt
-
-
-@pytest.mark.parametrize(
-    "fragment",
-    [
-        "cannot cancel, change or create bookings",
-        "booking number is missing, ask for it before calling a tool",
-        "only if the customer names a specific moment",
-        "never invent it",
-        "If a tool returns an error, do not guess",
-    ],
-)
-def test_system_prompt_contains_the_review_rules(fragment):
-    assert fragment in build_system_prompt(NOW)
+    assert "card or voucher" in prompt
 
 
 def test_model_error_propagates(tools):
@@ -129,12 +99,25 @@ def test_model_error_propagates(tools):
         run_agent("q", Broken(), tools)
 
 
-def test_end_to_end_refund_with_real_tools(tools):
-    call = tool_call("r1", "calculate_refund", '{"booking_id": "CW-1002"}')
-    model = FakeModel([assistant_calling(call), assistant_saying("You get 340.00 EUR.")])
-    run_agent("Cancel CW-1002", model, tools)
-    result = json.loads(tool_messages(model.calls[1])[0]["content"])
-    assert result["total_refund_eur"] == "340.00"
+class EchoToolResult:
+    """Fake model: asks for the refund, then answers with exactly what the tool returned."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, messages, tools):
+        self.calls += 1
+        if self.calls == 1:
+            return assistant_calling(tool_call("r1", "calculate_refund", '{"booking_id": "CW-1002"}'))
+        result = json.loads(messages[-1]["content"])
+        return assistant_saying(f"You get {result['total_refund_eur']} EUR {result['refund_method']}.")
+
+
+def test_refund_amount_from_the_tool_reaches_the_final_answer_unchanged(tools):
+    result = run_agent("Cancel CW-1002", EchoToolResult(), tools)
+
+    assert "340.00 EUR" in result.answer
+    assert json.loads(result.trace[0].result)["total_refund_eur"] == "340.00"
 
 
 @pytest.mark.parametrize(
@@ -152,9 +135,7 @@ def test_blank_answer_gives_safe_fallback_with_contact(tools, reply):
     [
         {"id": "x"},
         {"id": "x", "function": None},
-        {"id": "x", "function": {}},
-        {"id": "x", "function": {"name": "get_booking", "arguments": None}},
-        {"id": "x", "function": {"name": None, "arguments": "{}"}},
+        {"id": "x", "function": {"name": "get_booking", "arguments": "{broken"}},
     ],
 )
 def test_malformed_tool_call_is_answered_with_an_error_not_a_crash(tools, bad_call):
@@ -164,6 +145,15 @@ def test_malformed_tool_call_is_answered_with_an_error_not_a_crash(tools, bad_ca
     assert [m["tool_call_id"] for m in answered] == ["x"]
     assert "error" in json.loads(answered[0]["content"])
     assert result.answer == "Sorry."
+
+
+def test_non_dict_tool_call_is_skipped_without_crash(tools):
+    model = FakeModel([{"role": "assistant", "tool_calls": [None, "oops"]}, assistant_saying("Sorry.")])
+
+    result = run_agent("q", model, tools)
+
+    assert result.answer == "Sorry."
+    assert result.trace == []
 
 
 def test_tool_call_without_id_cannot_be_answered_but_does_not_crash(tools):

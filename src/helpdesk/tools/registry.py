@@ -61,7 +61,7 @@ TOOL_SCHEMAS = [
                         "description": (
                             "ISO 8601 with offset, e.g. 2026-06-12T09:00:00+02:00. Only if the customer "
                             "asks about a moment other than now; convert relative dates using the "
-                            "current time from the system prompt."
+                            "current time from the system prompt. Never invent it."
                         ),
                     },
                 },
@@ -125,4 +125,4 @@ def _run(tools: dict[str, Callable[..., dict]], name: str, raw_arguments: str) -
         return tool(**arguments)
     except Exception as error:  # noqa: BLE001 - a tool bug must not crash the conversation
         logger.exception("Tool %s failed", name)
-        return {"error": f"Tool failed, do not guess: {type(error).__name__}: {error}"}
+        return {"error": "Tool failed, do not guess."}  # details are only in the log

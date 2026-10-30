@@ -1,7 +1,11 @@
+import json
+import logging
+
 import pytest
 
 from fakes import FakeModel, assistant_calling, assistant_saying, tool_call
 from helpdesk.cli import main
+from helpdesk.config import NOW
 from helpdesk.llm import ModelError
 
 
@@ -91,3 +95,31 @@ def test_model_error_exits_1_with_friendly_text(capsys):
 
     assert main(["Hi"], model_factory=factory_for(Broken())) == 1
     assert "temporarily unavailable: timeout" in capsys.readouterr().err
+
+
+def test_cli_gives_tools_and_prompt_the_same_now(capsys):
+    call = tool_call("1", "calculate_refund", '{"booking_id": "CW-1001"}')
+    model = FakeModel([assistant_calling(call), assistant_saying("ok")])
+
+    main(["q"], model_factory=factory_for(model))
+
+    system_prompt = model.calls[0][0]["content"]
+    tool_result = json.loads(model.calls[1][-1]["content"])
+    assert NOW.isoformat() in system_prompt
+    assert tool_result["cancel_at"] == NOW.isoformat()
+
+
+def test_tool_failure_details_are_logged_only_with_verbose(monkeypatch, capsys):
+    def broken(*_args, **_kwargs):
+        raise ValueError("secret detail")
+
+    monkeypatch.setattr("helpdesk.tools.registry.get_booking", broken)
+    call = tool_call("1", "get_booking", '{"booking_id": "CW-1002"}')
+
+    for verbose, expected in ((False, False), (True, True)):
+        # basicConfig does nothing when the root logger already has handlers (pytest adds its own)
+        monkeypatch.setattr(logging.root, "handlers", [])
+        monkeypatch.setattr(logging.root, "level", logging.WARNING)
+        model = FakeModel([assistant_calling(call), assistant_saying("Sorry.")])
+        main((["--verbose"] if verbose else []) + ["q"], model_factory=factory_for(model))
+        assert ("secret detail" in capsys.readouterr().err) is expected

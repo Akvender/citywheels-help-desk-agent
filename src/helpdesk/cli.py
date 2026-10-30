@@ -1,6 +1,7 @@
 """Command line entry point: python -m helpdesk "question"."""
 
 import argparse
+import logging
 import sys
 import traceback
 from collections.abc import Callable
@@ -31,6 +32,8 @@ def main(argv: list[str] | None = None, model_factory: Callable[[], ChatModel] =
     parser.add_argument("question", nargs="*", help="the customer's question")
     parser.add_argument("--verbose", action="store_true", help="show every tool call")
     args = parser.parse_args(argv)
+    # Tool failures are logged with details; they are shown only with --verbose.
+    logging.basicConfig(level=logging.ERROR if args.verbose else logging.CRITICAL)
     question = " ".join(args.question).strip()
     if not question:
         parser.error("a question is required")  # prints usage and exits with code 2
@@ -53,7 +56,7 @@ def _answer(question: str, verbose: bool, model_factory: Callable[[], ChatModel]
     except (OSError, ValueError, KeyError) as error:
         return _fail(f"Could not load the shop data: {type(error).__name__}: {error}", 1)
     try:
-        result = run_agent(question, model, tools)
+        result = run_agent(question, model, tools, now=NOW)
     except ModelError as error:
         return _fail(f"The assistant is temporarily unavailable: {error}", 1)
 
