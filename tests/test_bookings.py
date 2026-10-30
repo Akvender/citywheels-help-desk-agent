@@ -2,9 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from helpdesk.tools.bookings import get_booking
-
-NOT_FOUND_MESSAGE = "No booking with this number was found."
+from helpdesk.tools.bookings import NOT_FOUND_MESSAGE, get_booking
 
 
 @pytest.fixture
@@ -48,7 +46,28 @@ def test_unknown_booking_number(bookings):
 def test_garbage_input_does_not_raise(bookings, raw):
     result = get_booking(bookings, raw)
 
-    assert result == {"found": False, "booking_id": raw, "message": NOT_FOUND_MESSAGE}
+    expected_echo = raw if isinstance(raw, str) else None
+    assert result == {"found": False, "booking_id": expected_echo, "message": NOT_FOUND_MESSAGE}
+
+
+def test_long_input_echo_is_cut_to_50_chars(bookings):
+    result = get_booking(bookings, "x" * 500)
+
+    assert result["booking_id"] == "x" * 50
+
+
+def test_half_up_rounding(bookings):
+    bookings["CW-1002"]["rental_price_eur"] = Decimal("0.125")
+
+    assert get_booking(bookings, "CW-1002")["booking"]["rental_price_eur"] == "0.13"
+
+
+def test_nested_values_are_deep_copied(bookings):
+    bookings["CW-1002"]["extra"] = {"notes": ["a"]}
+
+    get_booking(bookings, "CW-1002")["booking"]["extra"]["notes"].append("b")
+
+    assert bookings["CW-1002"]["extra"] == {"notes": ["a"]}
 
 
 def test_does_not_mutate_input(bookings):
