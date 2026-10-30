@@ -64,12 +64,45 @@ def test_missing_argument():
     assert "error" in json.loads(dispatch(make_tools(), "calculate_refund", "{}"))
 
 
-def test_unexpected_exception_is_reported_by_type_only():
+def test_exception_inside_a_tool_is_logged_and_reported_with_its_message(caplog):
     def broken(**_):
         raise ValueError("secret detail")
 
     result = json.loads(dispatch({"boom": broken}, "boom", "{}"))
-    assert result == {"error": "Tool failed: ValueError"}
+    assert result == {"error": "Tool failed, do not guess: ValueError: secret detail"}
+    assert "secret detail" in caplog.text
+
+
+def test_type_error_inside_a_tool_is_not_reported_as_wrong_arguments():
+    def buggy():
+        return 1 + "a"
+
+    error = json.loads(dispatch({"buggy": buggy}, "buggy", "{}"))["error"]
+    assert error.startswith("Tool failed, do not guess: TypeError")
+
+
+def test_binding_error_is_reported_as_wrong_arguments():
+    error = json.loads(dispatch(make_tools(), "get_booking", '{"id": "CW-1002"}'))["error"]
+    assert error.startswith("Wrong arguments:")
+
+
+def test_arguments_that_are_not_a_string_are_an_error():
+    assert "error" in json.loads(dispatch(make_tools(), "get_booking", {"booking_id": "CW-1002"}))
+
+
+def test_none_name_is_an_unknown_tool():
+    assert "error" in json.loads(dispatch(make_tools(), None, "{}"))
+
+
+def test_schemas_reject_extra_properties():
+    for schema in TOOL_SCHEMAS:
+        assert schema["function"]["parameters"]["additionalProperties"] is False
+
+
+def test_cancel_at_description_explains_format_and_relative_dates():
+    description = TOOL_SCHEMAS[2]["function"]["parameters"]["properties"]["cancel_at"]["description"]
+    assert "2026-06-12T09:00:00+02:00" in description
+    assert "current time" in description
 
 
 def test_non_json_values_are_stringified():

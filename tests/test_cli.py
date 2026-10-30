@@ -1,3 +1,5 @@
+import pytest
+
 from fakes import FakeModel, assistant_calling, assistant_saying, tool_call
 from helpdesk.cli import main
 from helpdesk.llm import ModelError
@@ -17,21 +19,61 @@ def test_verbose_shows_tool_calls_before_answer(capsys):
     call = tool_call("1", "get_booking", '{"booking_id": "CW-1002"}')
     model = FakeModel([assistant_calling(call), assistant_saying("Final answer")])
     main(["--verbose", "Where is CW-1002?"], model_factory=factory_for(model))
-    out = capsys.readouterr().out
-    assert "get_booking" in out
-    assert out.index("get_booking") < out.index("Final answer")
+    captured = capsys.readouterr()
+    assert "[tool] get_booking" in captured.err
+    assert "get_booking" not in captured.out
+    assert "Final answer" in captured.out
 
 
 def test_without_verbose_tools_are_hidden(capsys):
     call = tool_call("1", "get_booking", '{"booking_id": "CW-1002"}')
     model = FakeModel([assistant_calling(call), assistant_saying("Final answer")])
     main(["q"], model_factory=factory_for(model))
-    assert "get_booking" not in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "get_booking" not in captured.out + captured.err
 
 
 def test_no_question_prints_usage_and_exits_2(capsys):
-    assert main([], model_factory=factory_for(FakeModel([]))) == 2
+    with pytest.raises(SystemExit) as exit_info:
+        main([], model_factory=factory_for(FakeModel([])))
+    assert exit_info.value.code == 2
     assert "usage" in capsys.readouterr().err.lower()
+
+
+def test_unfinished_run_warns_on_stderr_but_exits_0(capsys):
+    loop = assistant_calling(tool_call("1", "get_booking", '{"booking_id": "CW-1002"}'))
+    code = main(["q"], model_factory=factory_for(FakeModel([loop] * 6)))
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "max_steps" in captured.err
+    assert "help@citywheels.example" in captured.out
+
+
+@pytest.mark.parametrize("error", [OSError("disk"), ValueError("bad json"), KeyError("id")])
+def test_data_loading_errors_exit_1_with_readable_message(monkeypatch, capsys, error):
+    def failing():
+        raise error
+
+    monkeypatch.setattr("helpdesk.cli.load_bookings", failing)
+    assert main(["Hi"], model_factory=factory_for(FakeModel([]))) == 1
+    assert "Could not load the shop data" in capsys.readouterr().err
+
+
+class Crashing:
+    def complete(self, messages, tools):
+        raise RuntimeError("boom")
+
+
+def test_unexpected_error_exits_1_without_traceback(capsys):
+    assert main(["Hi"], model_factory=factory_for(Crashing())) == 1
+    err = capsys.readouterr().err
+    assert "Unexpected error: RuntimeError: boom" in err
+    assert "Traceback" not in err
+
+
+def test_unexpected_error_shows_traceback_with_verbose(capsys):
+    assert main(["--verbose", "Hi"], model_factory=factory_for(Crashing())) == 1
+    assert "Traceback" in capsys.readouterr().err
 
 
 def test_missing_env_exits_2(monkeypatch, capsys):

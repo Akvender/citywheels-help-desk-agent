@@ -1,6 +1,8 @@
 """Connects the tool functions to the model: JSON schemas it sees and a safe dispatcher."""
 
+import inspect
 import json
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from functools import partial
@@ -9,6 +11,8 @@ from helpdesk.data import PolicySection
 from helpdesk.tools.bookings import get_booking
 from helpdesk.tools.policies import search_policies
 from helpdesk.tools.refund import calculate_refund
+
+logger = logging.getLogger(__name__)
 
 # The descriptions below are part of the prompt: the model decides which tool to call from them.
 TOOL_SCHEMAS = [
@@ -24,6 +28,7 @@ TOOL_SCHEMAS = [
                 "type": "object",
                 "properties": {"query": {"type": "string", "description": "Keywords of the question."}},
                 "required": ["query"],
+                "additionalProperties": False,
             },
         },
     },
@@ -36,6 +41,7 @@ TOOL_SCHEMAS = [
                 "type": "object",
                 "properties": {"booking_id": {"type": "string", "description": "Booking number, e.g. CW-1002."}},
                 "required": ["booking_id"],
+                "additionalProperties": False,
             },
         },
     },
@@ -54,12 +60,15 @@ TOOL_SCHEMAS = [
                     "cancel_at": {
                         "type": "string",
                         "description": (
-                            "ISO 8601 with time zone; only when the customer asks about "
-                            "a different moment than now."
+                            "ISO 8601 with offset, e.g. 2026-06-12T09:00:00+02:00. Only if the customer "
+                            "asks about a moment other than now; convert relative dates using the "
+                            "current time from the system prompt."
                         ),
                     },
                 },
                 "required": ["booking_id"],
+                "additionalProperties": False,
+                "additionalProperties": False,
             },
         },
     },
@@ -83,9 +92,11 @@ def dispatch(tools: dict[str, Callable[..., dict]], name: str, raw_arguments: st
 
 
 def _run(tools: dict[str, Callable[..., dict]], name: str, raw_arguments: str) -> dict:
-    tool = tools.get(name)
+    tool = tools.get(name) if isinstance(name, str) else None
     if tool is None:
         return {"error": f"Unknown tool: {name}"}
+    if not isinstance(raw_arguments, str | None):
+        return {"error": "Arguments must be a JSON string."}
     try:
         arguments = json.loads(raw_arguments or "{}")
     except json.JSONDecodeError:
@@ -93,8 +104,11 @@ def _run(tools: dict[str, Callable[..., dict]], name: str, raw_arguments: str) -
     if not isinstance(arguments, dict):
         return {"error": "Arguments must be a JSON object."}
     try:
-        return tool(**arguments)
+        inspect.signature(tool).bind(**arguments)  # only real binding errors count as "wrong arguments"
     except TypeError as error:
         return {"error": f"Wrong arguments: {error}"}
+    try:
+        return tool(**arguments)
     except Exception as error:  # noqa: BLE001 - a tool bug must not crash the conversation
-        return {"error": f"Tool failed: {type(error).__name__}"}
+        logger.exception("Tool %s failed", name)
+        return {"error": f"Tool failed, do not guess: {type(error).__name__}: {error}"}

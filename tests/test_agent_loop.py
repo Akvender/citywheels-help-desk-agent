@@ -1,3 +1,4 @@
+import copy
 import json
 
 import pytest
@@ -89,7 +90,7 @@ def test_max_steps_gives_safe_answer_with_contact(tools):
 
 def test_history_is_prepended_and_not_mutated(tools):
     history = [{"role": "user", "content": "earlier"}, {"role": "assistant", "content": "reply"}]
-    snapshot = list(history)
+    snapshot = copy.deepcopy(history)
     model = FakeModel([assistant_saying("ok")])
     result = run_agent("now", model, tools, history=history)
     roles_and_text = [(m["role"], m.get("content")) for m in model.calls[0][1:]]
@@ -103,6 +104,20 @@ def test_system_prompt_has_date_and_contact():
     assert "2026-06-10" in prompt
     assert "help@citywheels.example" in prompt
     assert "+48 000 000 000" in prompt
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        "cannot cancel, change or create bookings",
+        "booking number is missing, ask for it before calling a tool",
+        "only if the customer names a specific moment",
+        "never invent it",
+        "If a tool returns an error, do not guess",
+    ],
+)
+def test_system_prompt_contains_the_review_rules(fragment):
+    assert fragment in build_system_prompt(NOW)
 
 
 def test_model_error_propagates(tools):
@@ -120,3 +135,39 @@ def test_end_to_end_refund_with_real_tools(tools):
     run_agent("Cancel CW-1002", model, tools)
     result = json.loads(tool_messages(model.calls[1])[0]["content"])
     assert result["total_refund_eur"] == "340.00"
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [{"role": "assistant"}, {"role": "assistant", "content": None}, {"role": "assistant", "content": "  \n"}],
+)
+def test_blank_answer_gives_safe_fallback_with_contact(tools, reply):
+    result = run_agent("q", FakeModel([reply]), tools)
+    assert result.stopped == "empty"
+    assert STAFF_CONTACT in result.answer
+
+
+@pytest.mark.parametrize(
+    "bad_call",
+    [
+        {"id": "x"},
+        {"id": "x", "function": None},
+        {"id": "x", "function": {}},
+        {"id": "x", "function": {"name": "get_booking", "arguments": None}},
+        {"id": "x", "function": {"name": None, "arguments": "{}"}},
+    ],
+)
+def test_malformed_tool_call_is_answered_with_an_error_not_a_crash(tools, bad_call):
+    model = FakeModel([{"role": "assistant", "tool_calls": [bad_call]}, assistant_saying("Sorry.")])
+    result = run_agent("q", model, tools)
+    answered = tool_messages(model.calls[1])
+    assert [m["tool_call_id"] for m in answered] == ["x"]
+    assert "error" in json.loads(answered[0]["content"])
+    assert result.answer == "Sorry."
+
+
+def test_tool_call_without_id_cannot_be_answered_but_does_not_crash(tools):
+    reply = {"role": "assistant", "tool_calls": [{"function": {"name": "get_booking", "arguments": "{}"}}]}
+    result = run_agent("q", FakeModel([reply, assistant_saying("Sorry.")]), tools)
+    assert result.answer == "Sorry."
+    assert len(result.trace) == 1

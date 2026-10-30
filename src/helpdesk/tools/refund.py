@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from helpdesk.config import NOW
-from helpdesk.tools.booking_id import normalize_booking_id
+from helpdesk.tools.booking_id import echo_booking_id, normalize_booking_id
 
 CENT = Decimal("0.01")
 ZERO = Decimal(0)
@@ -85,7 +85,7 @@ def calculate_refund(
     normalized = normalize_booking_id(booking_id)
     booking = bookings.get(normalized) if normalized else None
     if booking is None:
-        return {"found": False, "booking_id": booking_id,
+        return {"found": False, "booking_id": echo_booking_id(booking_id),
                 "message": "No booking with this number was found."}
 
     when = now

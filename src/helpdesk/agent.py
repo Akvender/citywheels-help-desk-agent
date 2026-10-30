@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 from helpdesk.config import NOW
 from helpdesk.llm import ChatModel
@@ -9,6 +10,7 @@ from helpdesk.prompts import STAFF_CONTACT, build_system_prompt
 from helpdesk.tools.registry import TOOL_SCHEMAS, dispatch
 
 MAX_STEPS_ANSWER = f"I could not finish this request. Please contact the staff. {STAFF_CONTACT}"
+EMPTY_ANSWER = f"I could not produce an answer. Please contact the staff. {STAFF_CONTACT}"
 
 
 @dataclass(frozen=True)
@@ -23,7 +25,7 @@ class AgentResult:
     answer: str
     trace: list[ToolCall]
     messages: list[dict]
-    stopped: str  # "answer" or "max_steps"
+    stopped: Literal["answer", "max_steps", "empty"]
 
 
 def run_agent(
@@ -45,15 +47,16 @@ def run_agent(
         messages.append(reply)  # unchanged: providers may need their own fields back
         calls = reply.get("tool_calls") or []
         if not calls:
-            return AgentResult(reply.get("content") or "", trace, messages, "answer")
+            answer = (reply.get("content") or "").strip()
+            if not answer:
+                return AgentResult(EMPTY_ANSWER, trace, messages, "empty")
+            return AgentResult(answer, trace, messages, "answer")
         for call in calls:
-            trace.append(_run_call(call, tools, messages))
+            # The model's output is untrusted: any field may be missing, so nothing here can raise.
+            function = call.get("function") or {}
+            name, arguments = function.get("name"), function.get("arguments")
+            result = dispatch(tools, name, arguments)
+            trace.append(ToolCall(str(name), arguments if isinstance(arguments, str) else "", result))
+            if call.get("id"):  # a result can only be sent back for a call that has an id
+                messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
     return AgentResult(MAX_STEPS_ANSWER, trace, messages, "max_steps")
-
-
-def _run_call(call: dict, tools: dict[str, Callable[..., dict]], messages: list[dict]) -> ToolCall:
-    name = call["function"]["name"]
-    arguments = call["function"]["arguments"]
-    result = dispatch(tools, name, arguments)
-    messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
-    return ToolCall(name, arguments, result)

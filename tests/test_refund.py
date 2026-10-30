@@ -136,8 +136,13 @@ def test_unknown_or_invalid_id_is_not_found(raw):
     result = calculate_refund(BOOKINGS, raw)
 
     assert result["found"] is False
-    assert result["booking_id"] == raw
+    assert result["booking_id"] == (raw if isinstance(raw, str) else None)
     assert "message" in result
+
+
+def test_not_found_echo_is_bounded_like_get_booking():
+    assert calculate_refund(BOOKINGS, "x" * 500)["booking_id"] == "x" * 50
+    assert calculate_refund(BOOKINGS, 12345)["booking_id"] is None
 
 
 @pytest.mark.parametrize("bad", ["2026-06-11T10:00:00", "tomorrow", "2026-13-45T00:00:00+02:00", 42])
