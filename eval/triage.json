@@ -1,0 +1,20 @@
+{
+  "refund-100": {
+    "label": "agent error",
+    "comment": "Amount 90.00 EUR was correct, but the answer omitted how the money is returned (card).",
+    "run": 1,
+    "commit": "3decf71"
+  },
+  "refund-not-cancellable": {
+    "label": "check too strict",
+    "comment": "The agent said 'total refund: 0.00 EUR', which the check counted as an amount. Fixed afterwards: zero amounts are ignored (max_nonzero_amounts).",
+    "run": 1,
+    "commit": "3decf71"
+  },
+  "policy-kids-price": {
+    "label": "agent error",
+    "comment": "Retrieval bug, not a wording problem: the synonym 'hour' hijacked the query and the 'Bike rental' heading was made only of ignored generic words. Fixed in code afterwards.",
+    "run": 1,
+    "commit": "3decf71"
+  }
+}
