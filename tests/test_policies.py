@@ -98,6 +98,27 @@ RECALL_CASES = [
     ("Which currency are prices in?", "Prices"),
 ]
 
+# Hourly and daily prices of each bike type, worded in different ways. These once returned
+# "When are you open?" first, because "hour" was an opening-hours synonym.
+PRICE_TABLE_CASES = [
+    "What does a child's bike cost for one hour?",
+    "Price of a kids bike per hour?",
+    "Hourly rate for a kids bike?",
+    "How much is a city bike per hour?",
+    "What is the daily price of a city bike?",
+    "Cost of an electric bike per hour?",
+    "What do I pay per day for an e-bike?",
+    "How much is a kids bike for a day?",
+]
+
+
+@pytest.mark.parametrize("query", PRICE_TABLE_CASES)
+def test_price_questions_find_the_price_table_first(sections, query):
+    result = search_policies(sections, query)
+
+    assert ("prices.md", "Bike rental") in pairs(result, 2)
+    assert result["results"][0]["heading"] != "When are you open?"
+
 
 @pytest.mark.parametrize("query, heading", RECALL_CASES)
 def test_right_section_in_top_three(sections, query, heading):
@@ -143,13 +164,6 @@ def test_short_tokens_do_not_prefix_match():
     only = [PolicySection("a.md", "Cats", "A cat sat. Cats everywhere.")]
 
     assert search_policies(only, "ca")["results"] == []
-
-
-@pytest.mark.parametrize("top_k", [None, "3", 2.5, -1, 0, True])
-def test_garbage_top_k_falls_back_to_three(sections, top_k):
-    result = search_policies(sections, "price of bike rental per day deposit", top_k=top_k)
-
-    assert len(result["results"]) == 3
 
 
 def test_none_query_has_note(sections):

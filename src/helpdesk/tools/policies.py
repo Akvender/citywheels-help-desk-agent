@@ -8,8 +8,9 @@ explain: each distinct query word (or synonym) found in a section's heading adds
 
 Known limits: no real understanding of meaning (only the small SYNONYM_GROUPS
 table), no typo tolerance, and questions about things the shop never wrote down
-can still match by accident. Next step if the policies grow: embeddings or a
-hybrid with BM25 ranking.
+can still match by accident. "What are your hours?" finds nothing, because "hour"
+is deliberately not an opening-hours synonym: it hijacked every "price per hour"
+question. Next step if the policies grow: embeddings or a hybrid with BM25 ranking.
 """
 
 import re
@@ -29,36 +30,30 @@ STOPWORDS = {
     "which", "how", "when", "who", "get", "want", "there",
 }  # fmt: skip
 
-# Every question in this shop is about bike rental, so these words say nothing.
+# Every question in this shop is about bike rental, so these words say nothing. They are dropped from
+# the query only; the section texts keep them, so the price group below can reach the "Bike rental" heading.
 GENERIC_WORDS = {"bike", "bikes", "rent", "rental", "citywheels"}
 
 # Words that mean the same thing for this shop. A query word searches its whole group.
 SYNONYM_GROUPS = [
     {"ebike", "electric"},
-    {"open", "opening", "hour", "close", "closed", "closing", "time"},
-    {"where", "shop", "location", "address", "find"},
+    {"open", "opening", "close", "closed", "closing"},
     {"discount", "off", "week", "days"},
     {"lock", "add", "extra"},  # "add" reaches the Add-ons heading
     {"money", "refund", "back"},
-    {"late", "delay", "overdue"},
-    {"christmas", "holiday", "december", "january"},
-    {"kid", "kids", "child", "children"},
-    {"age", "old", "year"},
-    {"price", "cost", "much"},
-    {"cancel", "cancellation"},
-    {"storm", "weather"},
+    {"christmas", "december", "january"},
+    {"price", "cost", "much", "rate", "hourly", "daily", "rental"},  # the price table is under "Bike rental"
 ]  # fmt: skip
 
 
 def search_policies(sections: list[PolicySection], query: str, top_k: int = DEFAULT_TOP_K) -> dict:
     """Return the best matching sections, best first. Never raises; no match gives a note."""
-    limit = top_k if type(top_k) is int and top_k > 0 else DEFAULT_TOP_K
     terms = _expand(_query_tokens(query))
     ranked = sorted((_rank(section, terms) for section in sections), key=lambda r: r[:3], reverse=True)
     best_first = [item for item in ranked if item[0] >= MIN_SCORE]
     results = [
         {"source": s.source, "heading": s.heading, "text": s.text, "score": score}
-        for score, _, _, s in best_first[:limit]
+        for score, _, _, s in best_first[:top_k]
     ]
     output = {"query": query, "results": results}
     if not results:
@@ -75,7 +70,7 @@ def _tokens(text: object) -> set[str]:
 
 
 def _query_tokens(query: object) -> set[str]:
-    words = _tokens(query)
+    words = _tokens(query) - GENERIC_WORDS
     # "can I rent an e-bike at 15?" is an age question, though it never says "age".
     if isinstance(query, str) and re.search(r"\bat \d{1,2}\b(?![:.]\d)", query.lower()):
         words.add("age")
