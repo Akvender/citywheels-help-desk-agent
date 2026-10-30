@@ -1,12 +1,13 @@
 """The calculate_refund tool: what comes back when a booking is cancelled."""
 
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from helpdesk.config import NOW
 from helpdesk.tools.booking_id import normalize_booking_id
 
 CENT = Decimal("0.01")
+ZERO = Decimal(0)
 FULL_REFUND_FROM = timedelta(hours=48)
 HALF_REFUND_FROM = timedelta(hours=24)
 
@@ -15,16 +16,11 @@ REFUND_METHODS = {
     "voucher": "as a new voucher of the same value, never as money; the deposit too",
 }
 
+# Wording follows cancellations.md: these statuses cannot be cancelled and nothing is refunded.
 NOT_CANCELLABLE_REASONS = {
-    "cancelled": "The booking is already cancelled, so it cannot be cancelled again and nothing is refunded.",
-    "in_progress": (
-        "The booking cannot be cancelled because the rental has already started. "
-        "This does not mean the deposit is lost: staff settle it when the bike is returned."
-    ),
-    "completed": (
-        "The booking cannot be cancelled because the rental is already completed. "
-        "This does not mean the deposit is lost: staff settle it when the bike is returned."
-    ),
+    "cancelled": "The booking is already cancelled, so it cannot be cancelled again. Nothing is refunded.",
+    "in_progress": "The rental has already started, so the booking cannot be cancelled. Nothing is refunded.",
+    "completed": "The rental is already completed, so the booking cannot be cancelled. Nothing is refunded.",
 }
 
 
@@ -40,40 +36,43 @@ def refund_percent_for(time_before_start: timedelta) -> int:
     return 0
 
 
-def breakdown(percent: int, rental: Decimal, deposit: Decimal) -> dict:
-    return {
-        "refund_percent": percent,
-        "rental_refund_eur": money(rental),
-        "booking_fee_refund_eur": money(Decimal(0)),  # the booking fee is never refunded
-        "deposit_refund_eur": money(deposit),
-        "total_refund_eur": money(rental + deposit),
-    }
+def hours_label(time_before_start: timedelta) -> str:
+    # Rounded down, so 47:59 shows "47.98" and never "48.00" next to a 50% refund.
+    minutes = time_before_start // timedelta(minutes=1)
+    return str((Decimal(minutes) / 60).quantize(CENT, rounding=ROUND_DOWN))
 
 
 def compute_refund(booking: dict, cancel_at: datetime) -> dict:
-    """Apply the cancellation rules; rental_price_eur is already the whole booking price."""
+    """Apply the cancellation rules. rental_price_eur is already the whole booking price."""
     time_before_start = datetime.fromisoformat(booking["start"]) - cancel_at
-    hours = Decimal(int(time_before_start.total_seconds())) / 3600
-    base = {"cancel_at": cancel_at.isoformat(), "hours_before_start": money(hours)}
+    hours = hours_label(time_before_start)
+    result = {"cancel_at": cancel_at.isoformat(), "hours_before_start": hours}
 
     if booking["status"] != "confirmed":
-        reason = NOT_CANCELLABLE_REASONS.get(
+        result["can_cancel"] = False
+        result["reason"] = NOT_CANCELLABLE_REASONS.get(
             booking["status"], "The booking cannot be cancelled in its current status."
         )
-        return {**base, "can_cancel": False, "reason": reason,
-                **breakdown(0, Decimal(0), Decimal(0)), "refund_method": "nothing is refunded"}
-
-    percent = refund_percent_for(time_before_start)
-    rental = booking["rental_price_eur"] * percent / 100
-    reason = f"Cancelled {hours:.2f} hours before the start: {percent}% of the rental price is refunded."
-    if time_before_start < timedelta(0):
-        reason = (
-            "Interpretation: the rental start has already passed, so 0% of the rental "
-            "price is refunded; the deposit is still refunded in full."
+        percent, rental, deposit = 0, ZERO, ZERO
+        result["refund_method"] = "nothing is refunded"
+    else:
+        percent = refund_percent_for(time_before_start)
+        rental = booking["rental_price_eur"] * percent / 100
+        deposit = booking["deposit_eur"]  # always refunded in full on cancellation
+        result["can_cancel"] = True
+        result["reason"] = f"Cancelled {hours} hours before the start: {percent}% of the rental price is refunded."
+        if time_before_start < timedelta(0):
+            result["reason"] = "The rental start has already passed: 0% of the rental price is refunded."
+        result["refund_method"] = REFUND_METHODS.get(
+            booking["paid_with"], "refund method to be confirmed by the staff"
         )
-    return {**base, "can_cancel": True, "reason": reason,
-            **breakdown(percent, rental, booking["deposit_eur"]),
-            "refund_method": REFUND_METHODS[booking["paid_with"]]}
+
+    result["refund_percent"] = percent
+    result["rental_refund_eur"] = money(rental)
+    result["booking_fee_refund_eur"] = money(ZERO)  # the booking fee is never refunded
+    result["deposit_refund_eur"] = money(deposit)
+    result["total_refund_eur"] = money(rental + deposit)
+    return result
 
 
 def calculate_refund(
@@ -94,8 +93,9 @@ def calculate_refund(
         try:
             when = datetime.fromisoformat(cancel_at)
         except (TypeError, ValueError):
-            return {"error": "cancel_at must be an ISO 8601 date and time, e.g. 2026-06-11T10:00:00+02:00."}
+            return {"booking_id": normalized,
+                    "error": "cancel_at must be an ISO 8601 date and time, e.g. 2026-06-11T10:00:00+02:00."}
         if when.tzinfo is None:
-            return {"error": "cancel_at must include a time zone, e.g. +02:00."}
+            return {"booking_id": normalized, "error": "cancel_at must include a time zone, e.g. +02:00."}
 
     return {"booking_id": normalized, "found": True, **compute_refund(booking, when)}
