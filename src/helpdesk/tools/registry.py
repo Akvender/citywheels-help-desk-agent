@@ -1,6 +1,5 @@
 """Connects the tool functions to the model: JSON schemas it sees and a safe dispatcher."""
 
-import inspect
 import json
 import logging
 from collections.abc import Callable
@@ -68,7 +67,6 @@ TOOL_SCHEMAS = [
                 },
                 "required": ["booking_id"],
                 "additionalProperties": False,
-                "additionalProperties": False,
             },
         },
     },
@@ -84,6 +82,23 @@ def build_tools(
         "get_booking": partial(get_booking, bookings),
         "calculate_refund": partial(calculate_refund, bookings, now=now),
     }
+
+
+_PARAMETERS = {schema["function"]["name"]: schema["function"]["parameters"] for schema in TOOL_SCHEMAS}
+
+
+def _check_arguments(name: str, arguments: dict) -> str | None:
+    # The schema is the contract: the model may not pass anything else, e.g. its own "now" or data.
+    parameters = _PARAMETERS.get(name)
+    if parameters is None:  # a tool without a schema (only in tests) is not checked
+        return None
+    unknown = sorted(set(arguments) - set(parameters["properties"]))
+    missing = sorted(set(parameters["required"]) - set(arguments))
+    if unknown:
+        return f"unknown argument(s) {', '.join(unknown)}"
+    if missing:
+        return f"missing argument(s) {', '.join(missing)}"
+    return None
 
 
 def dispatch(tools: dict[str, Callable[..., dict]], name: str, raw_arguments: str) -> str:
@@ -103,10 +118,9 @@ def _run(tools: dict[str, Callable[..., dict]], name: str, raw_arguments: str) -
         return {"error": "Arguments are not valid JSON."}
     if not isinstance(arguments, dict):
         return {"error": "Arguments must be a JSON object."}
-    try:
-        inspect.signature(tool).bind(**arguments)  # only real binding errors count as "wrong arguments"
-    except TypeError as error:
-        return {"error": f"Wrong arguments: {error}"}
+    problem = _check_arguments(name, arguments)
+    if problem:
+        return {"error": f"Wrong arguments: {problem}"}
     try:
         return tool(**arguments)
     except Exception as error:  # noqa: BLE001 - a tool bug must not crash the conversation

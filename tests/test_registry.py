@@ -1,4 +1,6 @@
 import json
+
+import pytest
 from datetime import datetime
 
 from helpdesk.config import NOW
@@ -108,3 +110,13 @@ def test_cancel_at_description_explains_format_and_relative_dates():
 def test_non_json_values_are_stringified():
     tools = {"when": lambda: {"at": datetime(2026, 1, 1)}}
     assert json.loads(dispatch(tools, "when", "{}"))["at"].startswith("2026-01-01")
+
+
+@pytest.mark.parametrize("smuggled", ['{"booking_id": "CW-1002", "now": "2026-06-01T09:00:00+02:00"}',
+                                      '{"booking_id": "CW-1002", "bookings": {}}'])
+def test_model_cannot_override_bound_data_or_time(smuggled):
+    tools = build_tools(load_bookings(), load_policy_sections(), NOW)
+
+    result = json.loads(dispatch(tools, "calculate_refund", smuggled))
+
+    assert "unknown argument" in result["error"]
