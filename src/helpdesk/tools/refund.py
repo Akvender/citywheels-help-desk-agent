@@ -42,37 +42,47 @@ def hours_label(time_before_start: timedelta) -> str:
     return str((Decimal(minutes) / 60).quantize(CENT, rounding=ROUND_DOWN))
 
 
-def compute_refund(booking: dict, cancel_at: datetime) -> dict:
+def compute_refund(booking: dict, cancel_at: datetime, now: datetime = NOW) -> dict:
     """Apply the cancellation rules. rental_price_eur is already the whole booking price."""
     time_before_start = datetime.fromisoformat(booking["start"]) - cancel_at
-    hours = hours_label(time_before_start)
-    result = {"cancel_at": cancel_at.isoformat(), "hours_before_start": hours}
-
-    if booking["status"] != "confirmed":
-        result["can_cancel"] = False
-        result["reason"] = NOT_CANCELLABLE_REASONS.get(
-            booking["status"], "The booking cannot be cancelled in its current status."
-        )
-        percent, rental, deposit = 0, ZERO, ZERO
-        result["refund_method"] = "nothing is refunded"
+    result = {"cancel_at": cancel_at.isoformat(), "hours_before_start": hours_label(time_before_start)}
+    if booking["status"] == "confirmed":
+        result |= _cancellable(booking, time_before_start)
     else:
-        percent = refund_percent_for(time_before_start)
-        rental = booking["rental_price_eur"] * percent / 100
-        deposit = booking["deposit_eur"]  # always refunded in full on cancellation
-        result["can_cancel"] = True
-        result["reason"] = f"Cancelled {hours} hours before the start: {percent}% of the rental price is refunded."
-        if time_before_start < timedelta(0):
-            result["reason"] = "The rental start has already passed: 0% of the rental price is refunded."
-        result["refund_method"] = REFUND_METHODS.get(
-            booking["paid_with"], "refund method to be confirmed by the staff"
-        )
-
-    result["refund_percent"] = percent
-    result["rental_refund_eur"] = money(rental)
-    result["booking_fee_refund_eur"] = money(ZERO)  # the booking fee is never refunded
-    result["deposit_refund_eur"] = money(deposit)
-    result["total_refund_eur"] = money(rental + deposit)
+        result |= _not_cancellable(booking["status"])
+    if cancel_at != now:  # a what-if question: the model must not present it as a real cancellation
+        result["hypothetical"] = True
+        result["reason"] = f"If cancelled at {cancel_at.isoformat()}: {result['reason']}"
     return result
+
+
+def _amounts(percent: int, rental: Decimal, deposit: Decimal) -> dict:
+    return {
+        "refund_percent": percent,
+        "rental_refund_eur": money(rental),
+        "booking_fee_refund_eur": money(ZERO),  # the booking fee is never refunded
+        "deposit_refund_eur": money(deposit),
+        "total_refund_eur": money(rental + deposit),
+    }
+
+
+def _not_cancellable(status: str) -> dict:
+    reason = NOT_CANCELLABLE_REASONS.get(status, "The booking cannot be cancelled in its current status.")
+    return {"can_cancel": False, "reason": reason, "refund_method": "nothing is refunded",
+            **_amounts(0, ZERO, ZERO)}
+
+
+def _cancellable(booking: dict, time_before_start: timedelta) -> dict:
+    percent = refund_percent_for(time_before_start)
+    if time_before_start < timedelta(0):
+        reason = "The rental start has already passed: 0% of the rental price is refunded."
+    else:
+        hours = hours_label(time_before_start)
+        reason = f"Cancelled {hours} hours before the start: {percent}% of the rental price is refunded."
+    method = REFUND_METHODS.get(booking["paid_with"], "refund method to be confirmed by the staff")
+    rental = booking["rental_price_eur"] * percent / 100
+    deposit = booking["deposit_eur"]  # always refunded in full on cancellation
+    return {"can_cancel": True, "reason": reason, "refund_method": method, **_amounts(percent, rental, deposit)}
 
 
 def calculate_refund(
@@ -98,4 +108,4 @@ def calculate_refund(
         if when.tzinfo is None:
             return {"booking_id": normalized, "error": "cancel_at must include a time zone, e.g. +02:00."}
 
-    return {"booking_id": normalized, "found": True, **compute_refund(booking, when)}
+    return {"booking_id": normalized, "found": True, **compute_refund(booking, when, now)}

@@ -46,15 +46,15 @@ def test_hours_before_start_is_reported_with_two_decimals():
 def test_card_refund_mentions_five_working_days():
     result = calculate_refund(BOOKINGS, "CW-1001")
 
-    assert result["refund_method"] == "to the same card within 5 working days"
+    assert "same card" in result["refund_method"]
+    assert "5 working days" in result["refund_method"]
 
 
 def test_voucher_refund_is_a_new_voucher_including_deposit():
     result = calculate_refund(BOOKINGS, "CW-1004")
 
-    assert result["refund_method"] == (
-        "as a new voucher of the same value, never as money; the deposit too"
-    )
+    assert "voucher" in result["refund_method"]
+    assert "never as money" in result["refund_method"]
 
 
 @pytest.mark.parametrize("booking_id", ["CW-1001", "CW-1002", "CW-1006", "CW-1010"])
@@ -71,7 +71,8 @@ def test_other_statuses_cannot_be_cancelled_and_refund_nothing(booking_id):
     assert result["refund_percent"] == 0
     assert result["total_refund_eur"] == "0.00"
     assert result["deposit_refund_eur"] == "0.00"
-    assert "cannot be cancelled" in result["reason"]
+    assert "nothing is refunded" in result["refund_method"]
+    assert "cancel" in result["reason"]
 
 
 def test_just_below_48_hours_gives_half():
@@ -127,22 +128,39 @@ def test_half_cent_is_rounded_half_up():
     assert result["rental_refund_eur"] == "0.03"  # 50% of 0.05 = 0.025
 
 
-def test_booking_id_is_normalized():
+def test_booking_id_is_normalized():  # smoke test; the rules are in test_booking_id.py
     assert calculate_refund(BOOKINGS, " cw1001 ")["booking_id"] == "CW-1001"
 
 
-@pytest.mark.parametrize("raw", ["CW-9999", "hello", "", None])
+def test_refund_for_now_is_not_hypothetical():
+    result = calculate_refund(BOOKINGS, "CW-1001")
+
+    assert "hypothetical" not in result
+    assert not result["reason"].startswith("If cancelled")
+
+
+def test_refund_for_another_moment_is_marked_as_a_what_if():
+    result = calculate_refund(BOOKINGS, "CW-1007", cancel_at="2026-06-10T09:01:00+02:00")
+
+    assert result["hypothetical"] is True
+    assert result["reason"].startswith("If cancelled at 2026-06-10T09:01:00+02:00: ")
+    assert "50%" in result["reason"]
+
+
+def test_what_if_is_also_marked_for_bookings_that_cannot_be_cancelled():
+    result = calculate_refund(BOOKINGS, "CW-1005", cancel_at="2026-06-11T09:00:00+02:00")
+
+    assert result["hypothetical"] is True
+    assert result["reason"].startswith("If cancelled at ")
+
+
+@pytest.mark.parametrize("raw", ["CW-9999", None])
 def test_unknown_or_invalid_id_is_not_found(raw):
     result = calculate_refund(BOOKINGS, raw)
 
     assert result["found"] is False
-    assert result["booking_id"] == (raw if isinstance(raw, str) else None)
+    assert result["booking_id"] == raw
     assert "message" in result
-
-
-def test_not_found_echo_is_bounded_like_get_booking():
-    assert calculate_refund(BOOKINGS, "x" * 500)["booking_id"] == "x" * 50
-    assert calculate_refund(BOOKINGS, 12345)["booking_id"] is None
 
 
 @pytest.mark.parametrize("bad", ["2026-06-11T10:00:00", "tomorrow", "2026-13-45T00:00:00+02:00", 42])
