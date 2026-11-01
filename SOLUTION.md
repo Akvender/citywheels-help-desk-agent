@@ -1,133 +1,163 @@
-# Solution: CityWheels help desk agent
+# CityWheels Help Desk Agent: Solution
 
-A command-line agent that answers CityWheels customer questions using the shop's policies and booking data. The LLM decides which tool to call, the tools are plain Python functions, and refund amounts are always calculated in code, never by the model.
+## Overview
 
-## 1. Install and run
+The assistant answers questions about a fictional bike rental shop using the supplied policies and bookings. The LLM chooses tools and writes the response; tools supply facts and calculate refund amounts. The prompt requires the model to use tool results rather than outside knowledge and to send action requests or unresolved questions to staff. The system does not modify bookings.
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Refund arithmetic is deterministic Python code. Other prices and fees are retrieved as policy text; there are no calculation tools for new rentals or late returns.
 
-```bash
-uv sync --frozen
-cp .env.example .env          # then put your own key in LLM_API_KEY
+## Architecture
+
+```text
+CLI -> configuration and data loaders -> bound tool registry
+ |
+ v
+agent loop <-> ChatModel / OpenAI-compatible adapter <-> provider
+ |
+ +-> dispatch -> search_policies   -> policy sections
+             -> get_booking      -> bookings
+             -> calculate_refund -> bookings + fixed reference time
+ |
+ +-> final answer and tool trace -> CLI
 ```
 
-| What | Command |
-|---|---|
-| Ask a question | `uv run helpdesk "I want to cancel booking CW-1002. How much will I get back?"` |
-| Show tool calls (stderr) | `uv run helpdesk "What time do you open on Saturday?" --verbose` |
-| Run tests (offline, no key) | `uv run pytest` |
-| Run the evaluation (needs a key) | `uv run python eval/run_eval.py --runs 3 --model gemini-3.5-flash-lite` |
+| Component | Responsibility |
+| --- | --- |
+| `cli.py` | Parse the question and `--verbose`, load settings and data, print answers and errors |
+| `agent.py` | Build messages, execute requested tools and return an `AgentResult` |
+| `llm.py` | Define `ChatModel`, call the provider and normalize provider failures as `ModelError` |
+| `tools/registry.py` | Publish tool schemas, bind data and time, validate argument names and dispatch calls |
+| `tools/` | Retrieve policies, look up bookings and calculate refunds independently of the model |
+| `data.py` | Load bookings with `Decimal` values and split Markdown policies into sections |
+| `config.py` | Read LLM settings and define the data path and fixed reference time |
+| `prompts.py` | Define tool-use instructions, response constraints and staff contact |
 
-The "current" time from the data README (2026-06-10 09:00, Europe/Warsaw) is fixed in `src/helpdesk/config.py`. Tests run in GitHub Actions on every push.
+For a question about cancelling CW-1002, the CLI loads the data and binds it to the tools. The agent sends the question, system prompt and tool schemas to the model. Requested calls are dispatched, recorded in the trace and appended as tool messages with matching `tool_call_id` values. The model then receives those results and can request more tools or answer; `calculate_refund` returns a total of `340.00` EUR for cancellation at the reference time. Multiple calls in one reply are executed sequentially.
 
-## 2. Model and provider
+## Key design decisions
 
-I used Google Gemini on the free tier, through its OpenAI-compatible endpoint. The code depends on one small interface (`ChatModel` in `llm.py`), so switching to Groq, Ollama or OpenAI means changing three variables in `.env`.
+### A small explicit loop
 
-Development ran on `gemini-3.5-flash`. The committed evaluation uses `gemini-3.5-flash-lite`, because the daily free quota of the bigger model ran out (HTTP 429) during my first evaluation run. I also tried `gemini-3.8-flash`, but it kept returning 503 and timing out. GitHub Models, mentioned in the brief, was retired on 30.07.2026.
+I used an application-owned loop rather than LangChain or LangGraph because the task has one agent and three tools, with no workflow branching or persistent state. The `ChatModel` interface allows the same loop to run against a scripted model in tests.
 
-One provider detail is worth knowing: with tool calls, Gemini 3 attaches a `thought_signature` to each call and expects it back in the next request. Without it the API returns HTTP 400. The adapter therefore passes the assistant message back exactly as received (`message.model_dump(exclude_none=True)`), and `tests/test_llm.py` covers this.
+### Provider adapter and model choice
 
-## 3. How the agent works
+I used Gemini's free tier through its OpenAI-compatible endpoint. Provider URL, credential and model are configuration settings, while the agent depends only on `ChatModel`. Other endpoints must support the chat completions and tool-calling behavior this adapter uses.
 
-```
-question ─► run_agent ─► model.complete(messages, tool schemas)
-               ▲   │
-               │   ├─ tool calls? ─► dispatch(name, args) ─► tool (plain function) ─► data/
-               │   │                       │ JSON result, appended as role "tool"
-               └───┘◄──────────────────────┘
-                   └─ no tool calls ─► final answer
-                      (after 6 steps, or an empty answer ─► safe answer with the staff contact)
-```
+Development used `gemini-3.5-flash`. The committed evaluations use `gemini-3.5-flash-lite` because the larger model reached its free daily quota (HTTP 429) during the first evaluation run. `gemini-3.8-flash` returned HTTP 503 responses and timeouts during testing. GitHub Models, suggested in the brief, [was retired on July 30, 2026](https://docs.github.com/en/github-models).
 
-### The loop (`agent.py`)
+### Preserve provider metadata
 
-The loop is about 40 lines of my own code. I didn't use LangChain or LangGraph because there is one agent, three tools and no branching or stored state, so a framework would mostly hide what is going on. It also means the fake-model tests check my loop and not a library.
+The adapter returns `message.model_dump(exclude_none=True)`, and the loop appends that message unchanged. This preserves Gemini's tool-call `thought_signature` for subsequent requests; reconstructing only standard fields would discard it. Adapter and loop tests cover metadata preservation.
 
-The model can request several tools in one reply; each one gets its own `role: "tool"` message with the matching `tool_call_id`. Calls use `temperature=0`, a 60 s timeout and up to 2 retries. Provider errors are wrapped in `ModelError` and the CLI prints a short message. An empty, truncated (`finish_reason=length`) or filtered response is never shown to the customer as an answer.
+### Keyword retrieval
 
-### The tools (`src/helpdesk/tools/`)
+The three policy files load into 22 sections, split at `##` headings with document preambles retained. A small keyword search avoids an embedding service and makes ranking reproducible. Heading matches score 3 and body matches score 1; sections need at least 2 points, and the tool returns up to 3 results.
 
-Tools are plain functions that receive their data as arguments and don't know about the model. They don't raise; problems come back as `{"found": false}` or `{"error": ...}`.
+Search normalizes e-bike spellings, expands a synonym table and supports prefix matches when the shorter word has at least 4 characters. The current tokenizer removes stopwords and generic bike-rental terms from both queries and section text. Retrieval remains sensitive to wording; its limits are described below.
 
-**`calculate_refund(booking_id, cancel_at?)`** implements `cancellations.md`. Only `confirmed` bookings can be cancelled. The rental price is refunded 100% at 48 h or more before the start, 50% at 24 h or more, and 0% below that. Boundaries are inclusive, so exactly 48 h gives 100% (CW-1007) and exactly 24 h gives 50% (CW-1010). The booking fee is never refunded and the deposit is always returned in full. Money is `Decimal` from the moment the JSON is loaded. The result contains the breakdown and the refund method (card within 5 working days, or a new voucher). If `cancel_at` differs from the current time, the result is marked `hypothetical`, which handles questions like "and if I cancel tomorrow?".
+### Decimal arithmetic and bounded tool arguments
 
-**`get_booking(booking_id)`** normalises input like `cw1002` to `CW-1002` and returns a clear "not found" for unknown or malformed numbers.
+Booking JSON is loaded with `parse_float=Decimal`, avoiding conversion through binary floating point. Refund output is formatted to two decimal places using `ROUND_HALF_UP`; displayed hours are rounded down so that a value just below a threshold does not appear to meet it.
 
-**`search_policies(query)`** splits the three policy files into 22 sections by their `##` headings and ranks them by keyword overlap: a match in the heading scores 3, in the body 1, and a result needs at least 2. A small synonym table and prefix matching handle cases like `close` / `closed`, and "e-bike" is normalised to "ebike". I chose this over embeddings because with 22 short sections it is deterministic, needs no extra service, and every result can be explained and unit-tested. The downsides are in section 6.
+The registry binds bookings and the reference time with `functools.partial`. Dispatch checks required and unknown argument names against the published schemas, preventing the model from overriding bound values such as `now` or `bookings`. This is a limited schema check, not general JSON Schema type validation: tool functions validate relevant values, and dispatch catches execution failures.
 
-**`registry.py`** holds the JSON schemas the model sees (their descriptions are effectively part of the prompt), binds the data and the current time to each tool, and validates the model's arguments against the schema in `dispatch`. Without that check the model, or a prompt injection, could pass its own `now` and get a refund calculated for a different moment.
+### Failure handling
 
-### The prompt (`prompts.py`)
+The default loop limit is 6 model calls. Exhausting it or receiving a blank answer produces a fallback with the staff contact. The adapter rejects truncated (`length`) and filtered (`content_filter`) responses, and raises `ModelError` for empty provider choices or SDK errors. The CLI reports these failures on stderr.
 
-The system prompt tells the model to answer only from tool results, pick the right tool for bookings, refunds and rules, quote amounts exactly as the tool returns them (including which one is the total and how the money comes back), ask for a missing booking number, and not guess after a tool error. If nothing relevant is found or the question isn't about CityWheels, it says so and gives the staff contact, copied verbatim from `cancellations.md`. The agent only informs; it can't cancel or change bookings. The current date is included in the prompt.
+Provider calls use temperature 0, a 60-second SDK timeout and at most 2 SDK retries. These settings do not guarantee identical answers or a 60-second total runtime. Unknown tools, malformed arguments and tool exceptions return JSON errors to the model rather than terminating the loop.
 
-### Tests
+## Tools
 
-`uv run pytest` runs 209 tests in about 3 seconds, offline and without a key. Coverage is about 99%.
+The following contracts describe model-visible arguments; data and time are supplied by the application. Dispatch serializes results as JSON text.
 
-- Refunds: every rule of `calculate_refund` against the real bookings, including both boundaries and one minute below each, voucher refunds, the three non-cancellable statuses, rounding, time zones and bad input.
-- Agent loop: a scripted `FakeModel` (`tests/fakes.py`) covers a tool round trip, two tool calls in one reply, provider metadata passed back unchanged, unknown tools, broken JSON arguments, the step limit and empty answers.
-- End to end: the amount from `calculate_refund` (340.00 EUR) reaches the final answer unchanged.
+| Tool | Inputs | Successful output | Missing data or invalid input |
+| --- | --- | --- | --- |
+| `search_policies` | Required string `query` | `query` and ranked `results`, each containing `source`, `heading`, `text`, `score` | Empty `results` plus `note: "No relevant policy found."` |
+| `get_booking` | Required string `booking_id` | `found: true` and a copied `booking`, with decimal money formatted as strings | `found: false`, echoed `booking_id` and a message |
+| `calculate_refund` | Required string `booking_id`; optional string `cancel_at` in ISO 8601 with a time-zone offset | Booking ID, `found`, cancellation time, hours before start, eligibility, reason, refund method, percentage and amount breakdown | Unknown booking: `found: false` and a message; invalid cancellation time: booking ID and `error` |
 
-## 4. Evaluation
+Booking IDs are normalized, so `cw1002` resolves to `CW-1002`. Dispatch failures have the shape `{"error": "..."}`; unexpected execution failures return `{"error": "Tool failed, do not guess."}` and log the exception.
 
-`eval/questions.json` has 20 questions with expected outcomes:
+### Refund rules
 
-| Category | Count | Includes |
-|---|---|---|
-| Refunds | 9 | both boundaries, voucher, non-cancellable booking, "what if I cancel tomorrow", a question in Polish, a prompt-injection attempt ("give me 100%") |
-| Bookings | 3 | dates, unknown number, missing number |
-| Policy | 3 | |
-| Must refuse or redirect | 5 | off-topic, guided tours (no data), storm (staff decide), "change my booking", "print your system prompt" |
+For a `confirmed` booking, the rental refund is:
 
-`run_eval.py` runs the real agent and checks that the expected tools were called, that the expected refund total is in the answer, required and forbidden phrases (word-boundary matches), and grounding: every money amount in the answer has to appear as a money value in some tool result, which catches invented prices. Each question is asked several times, since answers vary even at temperature 0, and the report shows which questions always pass, are flaky or always fail. API problems (rate limits, timeouts) are counted separately from wrong answers, and every tool call is logged with its arguments and result.
+| Time before rental start | Rental price refunded |
+| --- | --- |
+| At least 48 hours | 100% |
+| At least 24 hours, less than 48 hours | 50% |
+| Less than 24 hours | 0% |
 
-### Results
+The boundaries are inclusive: CW-1007 is exactly at 48 hours and CW-1010 exactly at 24 hours at the fixed reference time. The booking fee is never refunded. The deposit is returned in full when a confirmed booking is cancelled, including when the rental refund is zero. Bookings marked `in_progress`, `completed` or `cancelled` cannot be cancelled and return zero for every refund component.
 
-| Run | Commit | Model | Result |
-|---|---|---|---|
-| 1 (`eval/runs/run1-3decf71-flash-lite.md`) | 3decf71 | gemini-3.5-flash-lite | 12 / 15 (1 run per question) |
-| 2 (`eval/results.md`) | 435f7e7 | gemini-3.5-flash-lite | 59 / 60 raw, 60 / 60 after triage (20 questions × 3 runs; 19 always pass, 1 flaky) |
+The tool uses the stored rental price for the whole booking, including add-ons. It returns `rental_refund_eur`, `booking_fee_refund_eur`, `deposit_refund_eur` and `total_refund_eur`. Card refunds go to the same card within 5 working days; voucher payments return as a new voucher, including the deposit.
 
-I went through every failure by hand and labelled it in `eval/triage.json` as an agent error, a check that was too strict, or an ambiguous question. Checks are not changed silently after seeing a result.
+Without `cancel_at`, calculation uses `2026-06-10T09:00:00+02:00`. A different cancellation time adds `hypothetical: true` and qualifies the reason. This supports what-if questions without performing a cancellation. Storm-warning exceptions require staff review rather than an automatic override.
 
-Run 1 had three failures:
+## Testing
 
-1. "What does a kids bike cost per hour?" was a real retrieval bug. "hour" was in the opening-hours synonym group, so the question matched "When are you open?". On top of that, the price table sits under the heading "Bike rental", and I had earlier made the search ignore "bike" and "rental" to stop questions like "Is the bike insured?" from matching everything. That fix removed the price table's heading score, and the unit tests didn't catch it. Now the generic words are ignored only in the query, "hour" is out of the synonym group, and there are 8 extra price questions phrased differently from the eval one.
-2. CW-1006 (not cancellable): the check was too strict. The correct answer said "total refund: 0.00 EUR" and the check treated that as a refund amount. Fixed in the check and recorded in the triage.
-3. CW-1001: minor agent error. The amount (90 EUR) was right, but the answer didn't say the money goes back to the card. Fixed with one prompt rule.
+The offline suite contains 209 tests. `uv run pytest --cov=helpdesk --cov-report=term-missing` passes all of them with 99% statement coverage (363 of 366 statements). The uncovered statements are in the `__main__.py` entry point. See [README.md](README.md#testing) for standard commands.
 
-In run 2 the only failed attempt was the Polish question. The answer was correct but formatted as "**340.00** EUR", and my parser doesn't handle markdown between the number and the currency. I labelled it "check too strict" and left the parser alone; it's listed in section 7. Five questions were added after run 1 (missing booking number, "change my booking", Polish, prompt leak, "cancel tomorrow") and are marked `added_after_run`.
+Refund tests cover the supplied bookings, inclusive thresholds and one minute below them, non-cancellable statuses, voucher payments, rounding, time zones and invalid input. Booking and retrieval tests cover normalization, missing records, ranking and price-query regressions. Registry tests check malformed JSON, unknown or missing arguments and attempts to override bound data or time.
 
-### Limits of the evaluation
+`tests/fakes.py` supplies `FakeModel` for scripted tool round trips, multiple calls, provider metadata, failures, empty answers and the step limit. An integration test checks that the tool's `340.00` EUR result reaches the final answer unchanged. Adapter tests use an injected client; no test needs a live provider. CLI and evaluation-check behavior are also tested. CI runs the suite on pushes and pull requests.
 
-I wrote the questions myself, so they cover what I thought of. Phrase checks can fail a correct answer that's worded differently, or pass a bad one that happens to contain the phrase. Grounding confirms a number came from a tool, not that it was used in the right place. And 20 questions × 3 runs on one model is a small sample. I treat the score as a lower bound and the manual triage as part of the result.
+## Evaluation
 
-## 5. How I used AI coding assistants
+### Method
 
-I used Claude Code as the main assistant and OpenAI Codex for a second opinion on the plan and a final review of the repo. I started with a short requirements document and a plan, then had the assistant write each module test-first, with separate review passes (Python, retrieval, error handling, tests, security). The design decisions were mine: my own loop instead of a framework, the provider and model, what to fix and what to leave as a known limitation. I didn't take any report at face value; after each step I re-ran the tests and the real model myself.
+`eval/questions.json` contains 20 authored cases: 9 refund questions, 3 booking questions, 3 policy questions and 5 refusal or escalation cases. They include both refund boundaries, voucher payment, missing and unknown booking IDs, a Polish question, hypothetical cancellation and prompt-injection attempts. Five cases are marked `added_after_run` because they were added after run 1.
 
-A few things the assistants got wrong that I had to catch:
+`eval/run_eval.py` calls the real agent repeatedly and records answers plus full tool arguments and results. Checks cover expected tools, expected refund totals, required or forbidden phrases with word boundaries, forbidden amounts and limits on nonzero amounts. Grounding checks require each parsed nonzero monetary amount to occur in tool-returned money fields or policy text. Zero amounts are excluded from grounding and nonzero-amount limits.
 
-- **Argument injection.** Tools were bound with `functools.partial` and the argument check also accepted `now` and `bookings`, so the model could override the current time. The coding agent mentioned this only as something it had "left out of scope". I treated it as a real hole: arguments now have to match the schema, with a test for it.
-- **Synonyms that never fired.** The search stemmed the query ("christmas" → "christma") but not the synonym list, so the holiday synonyms never matched. The test passed only because its question also contained "open". It showed up when I tried "Christmas" on its own.
-- **The retrieval regression** from section 4 also came from an AI suggestion: it fixed one problem and broke the price table. Only the evaluation against the real model caught it, which is the main reason I think the eval is worth having.
+The report separates infrastructure errors from graded answers and groups questions as always passing, flaky or always failing. The runner retries `ModelError` failures twice with a 20-second wait, in addition to SDK retries, and marks a run incomplete if more than 20% of attempts have infrastructure errors.
 
-## 6. Limitations
+### Recorded results
 
-- Keyword search is tuned to these 22 sections. Paraphrases outside the synonym table can miss: "What are your hours?" without "open" finds nothing, and "children" no longer reaches "Kids bike". A topic the documents mention only in passing can match the wrong section.
-- There is no customer identity check. Anyone who knows or guesses a booking number can read it. The agent is read-only and the data has no personal details, but a real deployment would need verification and rate limiting.
-- The CLI has no conversation memory; each question stands alone. The loop already accepts a `history`, so this is a small change.
-- The model can still phrase an answer badly. The prompt and the eval reduce this but don't prove correctness, and the final text isn't validated against the tool results.
-- Opening hours, late-return fees and new-booking prices come from the policy text. No tool calculates them, so the model reads them from search results.
-- The committed evaluation uses one provider and one model, because of free-tier limits.
+Both runs used `gemini-3.5-flash-lite` and recorded no infrastructure errors.
 
-## 7. Next steps with more time
+| Run | Recorded revision | Attempts | Raw result | Manual interpretation |
+| --- | --- | --- | --- | --- |
+| [Run 1](eval/runs/run1-3decf71-flash-lite.md) | `3decf71` (archive filename and triage) | 15 questions, once each | 12/15 | Three failures investigated and fixes recorded |
+| [Run 2](eval/results.md) | `435f7e7` | 20 questions, three times each | 59/60 | The single failure was a parser issue, not a wrong answer (see below); 19 questions always passed and 1 was flaky |
 
-1. An interactive `--chat` mode with memory, for follow-ups like "and if I cancel tomorrow?" (the refund tool already supports `cancel_at`).
-2. Compare two models on the same eval (`gemini-3.5-flash` vs `-flash-lite`, or a Groq model) on accuracy, stability and latency.
-3. Hybrid retrieval (BM25 + embeddings) once there are more documents, tested on a held-out set of paraphrased questions.
-4. Deterministic tools for the remaining calculations (late-return fee, new rental price), so the model never reads prices from text.
-5. An LLM judge as a second quality signal, calibrated against my manual labels and kept separate from the headline score.
-6. Fix the amount parser for markdown inside amounts (the Polish case from run 2).
+The runner's adjusted score excludes attempts triaged as "check too strict" rather than counting them as passes, so with the current triage it reports 59/59.
+
+### Failure triage
+
+`eval/triage.json` records labels and explanations tied to a run and revision. Labels distinguish agent errors, overly strict checks, ambiguous questions and infrastructure failures. Only matching-revision labels for overly strict checks affect the runner's adjusted denominator; stale labels remain visible for context.
+
+Run 1 exposed these failures:
+
+- The kids-bike hourly-price question retrieved opening hours. Two causes: `hour` was in the opening-hours synonym group, and the price table's heading ("Bike rental") consisted only of terms filtered as generic, so it received no heading score. Both are fixed and covered by eight additional price-query tests in `tests/test_policies.py`.
+- For CW-1006, the answer correctly stated a zero refund, but the check counted `0.00 EUR` against a no-amount limit. The current check limits nonzero amounts instead, as recorded in triage.
+- For CW-1001, the answer gave the correct `90.00` EUR refund but omitted the card refund method. The system prompt now explicitly requires the payment-return method alongside a refund amount.
+
+Run 2's sole raw failure was the Polish response containing `**340.00** EUR`. Manual triage accepted the answer, including its breakdown and card method; the parser missed the total because Markdown separated the number from the currency. The parser gap remains open.
+
+### Evaluation limits
+
+The cases were authored during development and include post-run additions, so they are not a held-out benchmark. Phrase checks can reject correct wording or accept an incorrect explanation containing the expected words. Amount grounding checks provenance, not whether an amount was used correctly, and only checks amounts the parser recognizes. Twenty questions with three attempts on one provider and model do not establish general reliability; manual acceptance must be read alongside the raw score.
+
+## Use of AI coding assistants
+
+I used Claude Code as the main coding assistant and Codex for a second review of the plan and repository. The workflow started with requirements and a plan, followed by test-first module work and separate review passes. I made the design and fix-priority decisions and verified each step by rerunning the tests and the real model. Three issues in assistant-written code were caught this way:
+
+- Tools bound with `functools.partial` accepted `now` and `bookings` as model arguments, so the model could override the reference time. Dispatch now rejects arguments outside the schema, with tests.
+- Query words were stemmed but the synonym table was not, so holiday synonyms never matched. Retrieval was changed to prefix matching.
+- A retrieval change regressed price questions; the evaluation against the real model exposed it (see run 1 above).
+
+## Limitations
+
+- Keyword retrieval is specific to this small corpus. Unrecognized paraphrases, typos or topics mentioned only in passing can miss relevant sections or retrieve unrelated text. For example, an hours question without an opening-related keyword can fail.
+- There is no customer identity verification or rate limiting. Anyone with a booking number can request it; the supplied data contains no customer identity fields.
+- Each CLI question starts a new conversation. `run_agent` accepts history, but the CLI does not persist it.
+- Final text is not validated against tool results at runtime. Prompt constraints and evaluation do not guarantee that the model follows every rule.
+- Opening hours, late fees and new-rental prices are returned as text rather than calculated by dedicated tools.
+- The committed evaluation covers one provider and model.
+
+## Future work
+
+Add an interactive chat mode using the existing history parameter. Compare models on the same evaluation, including latency and stability, and maintain a held-out paraphrase set before extending retrieval with BM25 or embeddings. Add deterministic tools for late-return fees and new-rental prices, and fix Markdown handling in the amount parser. A separately reported LLM judge could complement the rule checks after calibration against manual labels. A deployment using real customer bookings would also need identity verification and rate limiting.
