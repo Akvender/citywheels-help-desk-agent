@@ -98,7 +98,7 @@ Without `cancel_at`, calculation uses `2026-06-10T09:00:00+02:00`. A different c
 
 ## Testing
 
-The offline suite contains 209 tests. `uv run pytest --cov=helpdesk --cov-report=term-missing` passes all of them with 99% statement coverage (363 of 366 statements). The uncovered statements are in the `__main__.py` entry point. See [README.md](README.md#testing) for standard commands.
+The offline suite contains 217 tests. `uv run pytest --cov=helpdesk --cov-report=term-missing` passes all of them with 99% statement coverage (367 of 370 statements). The uncovered statements are in the `__main__.py` entry point. See [README.md](README.md#testing) for standard commands.
 
 Refund tests cover the supplied bookings, inclusive thresholds and one minute below them, non-cancellable statuses, voucher payments, rounding, time zones and invalid input. Booking and retrieval tests cover normalization, missing records, ranking and price-query regressions. Registry tests check malformed JSON, unknown or missing arguments and attempts to override bound data or time.
 
@@ -125,17 +125,19 @@ Both runs used `gemini-3.5-flash-lite` and recorded no infrastructure errors.
 
 The runner's adjusted score excludes attempts triaged as "check too strict" rather than counting them as passes, so with the current triage it reports 59/59.
 
+After run 2 the amount parser was fixed (see below). Re-scoring the 60 saved answers offline with the fixed checks gives 60/60, and no answer that previously passed now fails. Two small agent changes made after run 2 (an opening-hours phrase rule in retrieval and stricter handling of malformed tool calls) are covered by unit tests but not by a new run against the model.
+
 ### Failure triage
 
 `eval/triage.json` records labels and explanations tied to a run and revision. Labels distinguish agent errors, overly strict checks, ambiguous questions and infrastructure failures. Only matching-revision labels for overly strict checks affect the runner's adjusted denominator; stale labels remain visible for context.
 
 Run 1 exposed these failures:
 
-- The kids-bike hourly-price question retrieved opening hours. Two causes: `hour` was in the opening-hours synonym group, and the price table's heading ("Bike rental") consisted only of terms filtered as generic, so it received no heading score. Both are fixed and covered by eight additional price-query tests in `tests/test_policies.py`.
+- The kids-bike hourly-price question retrieved opening hours. `hour` was in the opening-hours synonym group, so the question scored on the opening-hours section. The price table's heading ("Bike rental") consists only of words filtered as generic and gets no heading score, so the table has to win on body words alone. `hour` was removed from the group and eight price questions worded differently from the evaluation case were added to `tests/test_policies.py`; the price table now ranks first for all of them.
 - For CW-1006, the answer correctly stated a zero refund, but the check counted `0.00 EUR` against a no-amount limit. The current check limits nonzero amounts instead, as recorded in triage.
 - For CW-1001, the answer gave the correct `90.00` EUR refund but omitted the card refund method. The system prompt now explicitly requires the payment-return method alongside a refund amount.
 
-Run 2's sole raw failure was the Polish response containing `**340.00** EUR`. Manual triage accepted the answer, including its breakdown and card method; the parser missed the total because Markdown separated the number from the currency. The parser gap remains open.
+Run 2's sole raw failure was the Polish response containing `**340.00** EUR`. Manual triage accepted the answer, including its breakdown and card method; the parser missed the total because Markdown separated the number from the currency. The same gap also let an invented amount written in bold pass the grounding check. The parser now strips Markdown emphasis before reading amounts, with tests for both a correct and an invented bold amount.
 
 ### Evaluation limits
 
@@ -151,7 +153,7 @@ I used Claude Code as the main coding assistant and Codex for a second review of
 
 ## Limitations
 
-- Keyword retrieval is specific to this small corpus. Unrecognized paraphrases, typos or topics mentioned only in passing can miss relevant sections or retrieve unrelated text. For example, an hours question without an opening-related keyword can fail.
+- Keyword retrieval is specific to this small corpus. Unrecognized paraphrases, typos or topics mentioned only in passing can miss relevant sections or retrieve unrelated text. For example, "children" does not reach the kids-bike price, and opening hours are recognised from "open" or phrases like "your hours", not from every wording.
 - There is no customer identity verification or rate limiting. Anyone with a booking number can request it; the supplied data contains no customer identity fields.
 - Each CLI question starts a new conversation. `run_agent` accepts history, but the CLI does not persist it.
 - Final text is not validated against tool results at runtime. Prompt constraints and evaluation do not guarantee that the model follows every rule.
@@ -160,4 +162,4 @@ I used Claude Code as the main coding assistant and Codex for a second review of
 
 ## Future work
 
-Add an interactive chat mode using the existing history parameter. Compare models on the same evaluation, including latency and stability, and maintain a held-out paraphrase set before extending retrieval with BM25 or embeddings. Add deterministic tools for late-return fees and new-rental prices, and fix Markdown handling in the amount parser. A separately reported LLM judge could complement the rule checks after calibration against manual labels. A deployment using real customer bookings would also need identity verification and rate limiting.
+Add an interactive chat mode using the existing history parameter. Compare models on the same evaluation, including latency and stability, and maintain a held-out paraphrase set before extending retrieval with BM25 or embeddings. Add deterministic tools for late-return fees and new-rental prices. A separately reported LLM judge could complement the rule checks after calibration against manual labels. A deployment using real customer bookings would also need identity verification and rate limiting.

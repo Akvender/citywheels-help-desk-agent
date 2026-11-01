@@ -51,7 +51,7 @@ uv run pytest -q
 uv run pytest --cov=helpdesk --cov-report=term-missing
 ```
 
-The suite contains 209 tests, runs offline and requires no API key. Measured statement coverage is 99%. GitHub Actions runs the tests on pushes and pull requests.
+The suite contains 217 tests, runs offline and requires no API key. Measured statement coverage is 99%. GitHub Actions runs the tests on pushes and pull requests.
 
 ## Evaluation
 

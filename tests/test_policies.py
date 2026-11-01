@@ -19,6 +19,16 @@ def test_opening_hours_is_top_result(sections):
     assert pairs(result, 1) == [("faq.md", "When are you open?")]
 
 
+@pytest.mark.parametrize("query", ["What are your hours?", "Business hours?", "Your opening hours on Sunday?"])
+def test_hours_without_open_finds_opening_hours(sections, query):
+    assert pairs(search_policies(sections, query), 1) == [("faq.md", "When are you open?")]
+
+
+@pytest.mark.parametrize("query", ["How many hours before the start can I cancel?", "Price of a kids bike per hour?"])
+def test_other_hours_do_not_go_to_opening_hours(sections, query):
+    assert search_policies(sections, query)["results"][0]["heading"] != "When are you open?"
+
+
 def test_day_price_of_ebike(sections):
     result = search_policies(sections, "How much is an e-bike for a whole day?")
 

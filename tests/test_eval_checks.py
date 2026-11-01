@@ -119,6 +119,20 @@ def test_markdown_bold_amount_is_parsed_and_grounded():
     assert check_case(CASE_1002, "Refund: **340.00 EUR**", refund_trace()) == []
 
 
+def test_markdown_between_number_and_currency_is_parsed():
+    assert money_amounts("Refund: **340.00** EUR, or _40_ EUR, or `10` EUR") == [
+        Decimal("340.00"),
+        Decimal("40"),
+        Decimal("10"),
+    ]
+    assert check_case(CASE_1002, "Refund: **340.00** EUR", refund_trace()) == []
+
+
+def test_invented_amount_in_markdown_fails_grounding():
+    reasons = check_case({}, "Refund: **999.00** EUR", refund_trace())
+    assert any("not backed by a tool result" in reason and "999" in reason for reason in reasons)
+
+
 def test_off_topic_answer_with_code_fails():
     case = {"must_not_contain": ["def ", "```"]}
     assert check_case(case, "Sure:\n```python\nprint(1)\n```", []) != []

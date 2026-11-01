@@ -182,8 +182,8 @@ Each answer gets these automatic checks (only the ones a question defines, plus 
   (a field ending in "_eur", or an amount written in a policy text). Other numbers in tool results
   (booking ids, hours, bike counts) do not count. It catches invented prices, but it cannot judge
   meaning: an answer can quote a real amount and still use it wrongly, or be phrased badly, and
-  pass. Phrase checks can also fail a correct answer that uses different words. Treat the numbers
-  as a lower bound on quality.
+  pass. Phrase checks can also fail a correct answer that uses different words. The numbers are
+  pass rates of these heuristic checks, not a measure of answer quality.
 - infra errors (API down, rate limit) are reported separately and are not counted as wrong answers.
 
 Stability needs --runs 2 or more: with one run every question is either "always pass" or

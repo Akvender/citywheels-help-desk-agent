@@ -52,10 +52,12 @@ def run_agent(
                 return AgentResult(EMPTY_ANSWER, trace, messages, "empty")
             return AgentResult(answer, trace, messages, "answer")
         for call in calls:
-            # The model's output is untrusted: any field may be missing, so nothing here can raise.
+            # The model's output is untrusted: any field may be missing or have the wrong type.
             if not isinstance(call, dict):
                 continue
-            function = call.get("function") or {}
+            function = call.get("function")
+            if not isinstance(function, dict):
+                function = {}
             name, arguments = function.get("name"), function.get("arguments")
             result = dispatch(tools, name, arguments)
             trace.append(ToolCall(str(name), arguments if isinstance(arguments, str) else "", result))

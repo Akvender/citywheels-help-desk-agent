@@ -63,8 +63,8 @@ Each answer gets these automatic checks (only the ones a question defines, plus 
   (a field ending in "_eur", or an amount written in a policy text). Other numbers in tool results
   (booking ids, hours, bike counts) do not count. It catches invented prices, but it cannot judge
   meaning: an answer can quote a real amount and still use it wrongly, or be phrased badly, and
-  pass. Phrase checks can also fail a correct answer that uses different words. Treat the numbers
-  as a lower bound on quality.
+  pass. Phrase checks can also fail a correct answer that uses different words. The numbers are
+  pass rates of these heuristic checks, not a measure of answer quality.
 - infra errors (API down, rate limit) are reported separately and are not counted as wrong answers.
 
 Stability needs --runs 2 or more: with one run every question is either "always pass" or
@@ -81,3 +81,7 @@ commit. A label marked STALE belongs to an older commit, is ignored by the adjus
 The table above was generated before triage, so it shows "untriaged". Reading the one failed attempt by hand:
 
 - **polish-refund, run 2: check too strict.** The answer was correct: "**340.00** EUR", with the 40.00 + 300.00 breakdown and the card refund. The markdown bold sits between the number and the currency, so the amount parser did not read 340.00. Counted as a pass by manual assessment, the result is 60 / 60; the runner's adjusted score, which excludes such attempts, is 59 / 59. The parser was not changed after seeing this result; it is listed as a known gap in SOLUTION.md.
+
+## Re-scoring after the parser fix
+
+The amount parser now strips Markdown emphasis. Re-scoring the 60 saved answers above offline with the fixed checks gives 60 / 60; polish-refund run 2 now passes and no other result changed.

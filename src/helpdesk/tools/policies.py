@@ -31,7 +31,8 @@ STOPWORDS = {
 }  # fmt: skip
 
 # Every question in this shop is about bike rental, so these words say nothing. They are dropped from
-# the query only; the section texts keep them, so the price group below can reach the "Bike rental" heading.
+# both queries and sections. The "Bike rental" heading therefore never scores; its price table is found
+# through body words such as "price", "hourly" and "daily".
 GENERIC_WORDS = {"bike", "bikes", "rent", "rental", "citywheels"}
 
 # Words that mean the same thing for this shop. A query word searches its whole group.
@@ -42,7 +43,7 @@ SYNONYM_GROUPS = [
     {"lock", "add", "extra"},  # "add" reaches the Add-ons heading
     {"money", "refund", "back"},
     {"christmas", "december", "january"},
-    {"price", "cost", "much", "rate", "hourly", "daily", "rental"},  # the price table is under "Bike rental"
+    {"price", "cost", "much", "rate", "hourly", "daily", "rental"},  # "rental" catches query words like "rentals"
 ]  # fmt: skip
 
 
@@ -74,6 +75,9 @@ def _query_tokens(query: object) -> set[str]:
     # "can I rent an e-bike at 15?" is an age question, though it never says "age".
     if isinstance(query, str) and re.search(r"\bat \d{1,2}\b(?![:.]\d)", query.lower()):
         words.add("age")
+    # "What are your hours?" means opening hours; "per hour" and "48 hours before" do not.
+    if isinstance(query, str) and re.search(r"\b(?:your|opening|business|shop|store) hours\b", query.lower()):
+        words.add("open")
     return words
 
 

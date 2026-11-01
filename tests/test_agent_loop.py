@@ -135,6 +135,7 @@ def test_blank_answer_gives_safe_fallback_with_contact(tools, reply):
     [
         {"id": "x"},
         {"id": "x", "function": None},
+        {"id": "x", "function": "oops"},
         {"id": "x", "function": {"name": "get_booking", "arguments": "{broken"}},
     ],
 )

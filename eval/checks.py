@@ -22,10 +22,15 @@ def _to_decimal(raw: str) -> Decimal:
     return Decimal(raw.replace(",", ""))
 
 
+_MARKDOWN_EMPHASIS = re.compile(r"[*_`]+")
+
+
 def money_amounts(text: str) -> list[Decimal]:
     """Amounts written next to a currency marker, in the order they appear."""
     amounts = []
-    for match in _MONEY.finditer(text):
+    # Without this, "**340.00** EUR" hides the amount from the parser and from the grounding check.
+    plain = _MARKDOWN_EMPHASIS.sub("", text)
+    for match in _MONEY.finditer(plain):
         amounts.append(_to_decimal(match.group("before") or match.group("after")))
     return amounts
 
