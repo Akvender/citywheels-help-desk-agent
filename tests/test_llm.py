@@ -13,8 +13,7 @@ SETTINGS = LLMSettings(base_url="http://unused.example", api_key="k", model="m")
 def completion(message: dict, finish_reason: str = "stop", empty: bool = False) -> ChatCompletion:
     choice = {"index": 0, "finish_reason": finish_reason, "message": message}
     return ChatCompletion.model_validate(
-        {"id": "1", "object": "chat.completion", "created": 0, "model": "m",
-         "choices": [] if empty else [choice]}
+        {"id": "1", "object": "chat.completion", "created": 0, "model": "m", "choices": [] if empty else [choice]}
     )
 
 
@@ -37,8 +36,12 @@ def test_returns_plain_answer_as_dict():
 
 
 def test_thought_signature_survives_in_returned_dict():
-    call = {"id": "c1", "type": "function", "function": {"name": "get_booking", "arguments": "{}"},
-            "extra_content": {"google": {"thought_signature": "abc=="}}}
+    call = {
+        "id": "c1",
+        "type": "function",
+        "function": {"name": "get_booking", "arguments": "{}"},
+        "extra_content": {"google": {"thought_signature": "abc=="}},
+    }
     reply = ask(stub_client(completion({"role": "assistant", "tool_calls": [call]}, "tool_calls")))
     assert reply["tool_calls"][0]["extra_content"] == {"google": {"thought_signature": "abc=="}}
 

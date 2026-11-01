@@ -68,8 +68,7 @@ def _amounts(percent: int, rental: Decimal, deposit: Decimal) -> dict:
 
 def _not_cancellable(status: str) -> dict:
     reason = NOT_CANCELLABLE_REASONS.get(status, "The booking cannot be cancelled in its current status.")
-    return {"can_cancel": False, "reason": reason, "refund_method": "nothing is refunded",
-            **_amounts(0, ZERO, ZERO)}
+    return {"can_cancel": False, "reason": reason, "refund_method": "nothing is refunded", **_amounts(0, ZERO, ZERO)}
 
 
 def _cancellable(booking: dict, time_before_start: timedelta) -> dict:
@@ -95,16 +94,21 @@ def calculate_refund(
     normalized = normalize_booking_id(booking_id)
     booking = bookings.get(normalized) if normalized else None
     if booking is None:
-        return {"found": False, "booking_id": echo_booking_id(booking_id),
-                "message": "No booking with this number was found."}
+        return {
+            "found": False,
+            "booking_id": echo_booking_id(booking_id),
+            "message": "No booking with this number was found.",
+        }
 
     when = now
     if cancel_at is not None:
         try:
             when = datetime.fromisoformat(cancel_at)
         except (TypeError, ValueError):
-            return {"booking_id": normalized,
-                    "error": "cancel_at must be an ISO 8601 date and time, e.g. 2026-06-11T10:00:00+02:00."}
+            return {
+                "booking_id": normalized,
+                "error": "cancel_at must be an ISO 8601 date and time, e.g. 2026-06-11T10:00:00+02:00.",
+            }
         if when.tzinfo is None:
             return {"booking_id": normalized, "error": "cancel_at must include a time zone, e.g. +02:00."}
 

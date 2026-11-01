@@ -25,8 +25,7 @@ def load_llm_settings() -> LLMSettings:
     missing = [name for name in _REQUIRED_ENV if not os.environ.get(name)]
     if missing:
         raise RuntimeError(
-            f"Missing environment variables: {', '.join(missing)}. "
-            "Copy .env.example to .env and fill them in."
+            f"Missing environment variables: {', '.join(missing)}. Copy .env.example to .env and fill them in."
         )
     return LLMSettings(
         base_url=os.environ["LLM_BASE_URL"],

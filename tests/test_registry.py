@@ -1,7 +1,7 @@
 import json
+from datetime import datetime
 
 import pytest
-from datetime import datetime
 
 from helpdesk.config import NOW
 from helpdesk.data import PolicySection, load_bookings, load_policy_sections
@@ -100,8 +100,10 @@ def test_non_json_values_are_stringified():
     assert json.loads(dispatch(tools, "when", "{}"))["at"].startswith("2026-01-01")
 
 
-@pytest.mark.parametrize("smuggled", ['{"booking_id": "CW-1002", "now": "2026-06-01T09:00:00+02:00"}',
-                                      '{"booking_id": "CW-1002", "bookings": {}}'])
+@pytest.mark.parametrize(
+    "smuggled",
+    ['{"booking_id": "CW-1002", "now": "2026-06-01T09:00:00+02:00"}', '{"booking_id": "CW-1002", "bookings": {}}'],
+)
 def test_model_cannot_override_bound_data_or_time(smuggled):
     tools = build_tools(load_bookings(), load_policy_sections(), NOW)
 

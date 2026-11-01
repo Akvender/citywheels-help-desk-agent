@@ -2,8 +2,8 @@ import json
 import logging
 
 import pytest
-
 from fakes import FakeModel, assistant_calling, assistant_saying, tool_call
+
 from helpdesk.cli import main
 from helpdesk.config import NOW
 from helpdesk.llm import ModelError

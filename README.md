@@ -49,9 +49,10 @@ The example file selects `gemini-3.8-flash`; the committed evaluation used `gemi
 ```bash
 uv run pytest -q
 uv run pytest --cov=helpdesk --cov-report=term-missing
+uv run ruff check . && uv run ruff format --check .
 ```
 
-The suite contains 217 tests, runs offline and requires no API key. Measured statement coverage is 99%. GitHub Actions runs the tests on pushes and pull requests.
+The suite contains 217 tests, runs offline and requires no API key. Measured statement coverage is 99%. GitHub Actions runs the linter, the formatter check and the tests on pushes and pull requests.
 
 ## Evaluation
 

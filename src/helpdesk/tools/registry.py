@@ -123,6 +123,6 @@ def _run(tools: dict[str, Callable[..., dict]], name: str, raw_arguments: str) -
         return {"error": f"Wrong arguments: {problem}"}
     try:
         return tool(**arguments)
-    except Exception as error:  # noqa: BLE001 - a tool bug must not crash the conversation
+    except Exception:  # noqa: BLE001 - a tool bug must not crash the conversation
         logger.exception("Tool %s failed", name)
         return {"error": "Tool failed, do not guess."}  # details are only in the log

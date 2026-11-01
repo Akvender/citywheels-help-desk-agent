@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from helpdesk.config import NOW
@@ -35,7 +36,7 @@ def run_agent(
     *,
     history: list[dict] | None = None,
     max_steps: int = 6,
-    now=NOW,
+    now: datetime = NOW,
 ) -> AgentResult:
     messages = [{"role": "system", "content": build_system_prompt(now)}]
     messages += history or []  # copies the items into a new list; the caller's list stays untouched

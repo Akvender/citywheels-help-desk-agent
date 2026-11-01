@@ -2,8 +2,8 @@ import copy
 import json
 
 import pytest
-
 from fakes import FakeModel, assistant_calling, assistant_saying, tool_call
+
 from helpdesk.agent import run_agent
 from helpdesk.config import NOW
 from helpdesk.data import load_bookings, load_policy_sections

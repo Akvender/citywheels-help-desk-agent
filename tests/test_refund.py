@@ -23,9 +23,7 @@ BOOKINGS = load_bookings()
         ("CW-1010", 50, "20.00", "150.00", "170.00"),  # exactly 24 h
     ],
 )
-def test_confirmed_bookings_follow_the_cancellation_table(
-    booking_id, percent, rental, deposit, total
-):
+def test_confirmed_bookings_follow_the_cancellation_table(booking_id, percent, rental, deposit, total):
     result = calculate_refund(BOOKINGS, booking_id)
 
     assert result["found"] is True

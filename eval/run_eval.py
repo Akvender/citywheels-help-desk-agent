@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from checks import check_case
@@ -108,6 +108,7 @@ def adjusted_summary(records: list[dict], triage: dict, sha: str) -> dict:
 
     Only labels written for the current commit count: a label from an older run must not change a newer score.
     """
+
     def excluded(r: dict) -> bool:
         entry = triage.get(r["id"], {})
         return r["status"] == "fail" and entry.get("label") == "check too strict" and entry.get("commit") == sha
@@ -192,13 +193,14 @@ questions.json were added after the first run and were not part of it.
 
 Triage is a manual label written after reading the failures (eval/triage.json). The checks are
 never edited silently after seeing results: a check that was wrong is labelled "check too strict",
-fixed in a visible commit, and the "adjusted" score leaves those failed attempts out, but only for labels written for the current
-commit. A label marked STALE belongs to an older commit, is ignored by the adjusted score and must be re-checked."""
+fixed in a visible commit, and the "adjusted" score leaves those failed attempts out, but only for
+labels written for the current commit. A label marked STALE belongs to an older commit, is ignored
+by the adjusted score and must be re-checked."""
 
 
 def header_lines(model_name: str, runs: int, records: list[dict]) -> list[str]:
     sha, dirty = git_state()
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    date = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     stats = summarize(records)
     lines = ["# Evaluation results", ""]
     if stats["total"] and stats["infra_errors"] / stats["total"] > INCOMPLETE_SHARE:
@@ -238,9 +240,15 @@ def build_report(records: list[dict], model_name: str, runs: int, triage: dict |
     lines += [
         "| Question | Category | Passed | Stability | Tools (first run) | Failure reasons | Triage |",
         "|---|---|---|---|---|---|---|",
-        *per_question_rows(records, runs, triage, sha), "",
-        "## Failures", "", *failure_sections(records),
-        "## How to read this", "", HOW_TO_READ, "",
+        *per_question_rows(records, runs, triage, sha),
+        "",
+        "## Failures",
+        "",
+        *failure_sections(records),
+        "## How to read this",
+        "",
+        HOW_TO_READ,
+        "",
     ]
     return "\n".join(lines)
 

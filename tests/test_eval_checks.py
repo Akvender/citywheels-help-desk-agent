@@ -9,11 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "eval"))
 
 import run_eval  # noqa: E402
 from checks import check_case, contains_phrase, known_amounts, money_amounts  # noqa: E402
+
 from helpdesk.agent import ToolCall  # noqa: E402
 
-REFUND_RESULT = (
-    '{"booking_id": "CW-1002", "hours_before_start": 33, "total_refund_eur": "340.00", "deposit": 300}'
-)
+REFUND_RESULT = '{"booking_id": "CW-1002", "hours_before_start": 33, "total_refund_eur": "340.00", "deposit": 300}'
 
 
 def refund_trace(result: str = REFUND_RESULT) -> list[ToolCall]:
@@ -189,22 +188,35 @@ def test_multi_word_phrase_is_a_plain_case_insensitive_match():
 
 def record(case_id, status, run=1, reasons=()):
     return {
-        "id": case_id, "category": "refund", "run": run, "question": "q", "status": status,
-        "answer": "a", "tool_calls": [{"name": "calculate_refund", "arguments": "{}", "result": "{}"}],
+        "id": case_id,
+        "category": "refund",
+        "run": run,
+        "question": "q",
+        "status": status,
+        "answer": "a",
+        "tool_calls": [{"name": "calculate_refund", "arguments": "{}", "result": "{}"}],
         "reasons": list(reasons),
     }
 
 
 def test_stability_buckets_ignore_infra_errors():
     records = [
-        record("a", "pass", 1), record("a", "pass", 2),
-        record("b", "pass", 1), record("b", "fail", 2, ["x"]),
-        record("c", "fail", 1, ["x"]), record("c", "fail", 2, ["x"]),
-        record("d", "infra_error", 1, ["429"]), record("d", "pass", 2),
+        record("a", "pass", 1),
+        record("a", "pass", 2),
+        record("b", "pass", 1),
+        record("b", "fail", 2, ["x"]),
+        record("c", "fail", 1, ["x"]),
+        record("c", "fail", 2, ["x"]),
+        record("d", "infra_error", 1, ["429"]),
+        record("d", "pass", 2),
         record("e", "infra_error", 1, ["429"]),
     ]
     assert run_eval.stability(records) == {
-        "a": "always pass", "b": "flaky", "c": "always fail", "d": "always pass", "e": "no graded attempt",
+        "a": "always pass",
+        "b": "flaky",
+        "c": "always fail",
+        "d": "always pass",
+        "e": "no graded attempt",
     }
 
 
