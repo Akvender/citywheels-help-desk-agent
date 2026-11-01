@@ -76,7 +76,7 @@ The following contracts describe model-visible arguments; data and time are supp
 | --- | --- | --- | --- |
 | `search_policies` | Required string `query` | `query` and ranked `results`, each containing `source`, `heading`, `text`, `score` | Empty `results` plus `note: "No relevant policy found."` |
 | `get_booking` | Required string `booking_id` | `found: true` and a copied `booking`, with decimal money formatted as strings | `found: false`, echoed `booking_id` and a message |
-| `calculate_refund` | Required string `booking_id`; optional string `cancel_at` in ISO 8601 with a time-zone offset | Booking ID, `found`, cancellation time, hours before start, eligibility, reason, refund method, percentage and amount breakdown | Unknown booking: `found: false` and a message; invalid cancellation time: booking ID and `error` |
+| `calculate_refund` | Required string `booking_id`; optional string `cancel_at` in ISO 8601 with a time-zone offset | Booking ID, `found`, cancellation time, hours before start, eligibility, reason, refund method, percentage and amount breakdown | Unknown booking: `found: false` and a message; invalid or past cancellation time: booking ID and `error` |
 
 Booking IDs are normalized, so `cw1002` resolves to `CW-1002`. Dispatch failures have the shape `{"error": "..."}`; unexpected execution failures return `{"error": "Tool failed, do not guess."}` and log the exception.
 
@@ -94,11 +94,11 @@ The boundaries are inclusive: CW-1007 is exactly at 48 hours and CW-1010 exactly
 
 The tool uses the stored rental price for the whole booking, including add-ons. It returns `rental_refund_eur`, `booking_fee_refund_eur`, `deposit_refund_eur` and `total_refund_eur`. Card refunds go to the same card within 5 working days; voucher payments return as a new voucher, including the deposit.
 
-Without `cancel_at`, calculation uses `2026-06-10T09:00:00+02:00`. A different cancellation time adds `hypothetical: true` and qualifies the reason. This supports what-if questions without performing a cancellation. Storm-warning exceptions require staff review rather than an automatic override.
+Without `cancel_at`, calculation uses `2026-06-10T09:00:00+02:00`. A different cancellation time adds `hypothetical: true` and qualifies the reason. This supports what-if questions without performing a cancellation. A `cancel_at` before the reference time returns an error, because it would show a higher refund than the customer can still get. Storm-warning exceptions require staff review rather than an automatic override.
 
 ## Testing
 
-The offline suite contains 217 tests. `uv run pytest --cov=helpdesk --cov-report=term-missing` passes all of them with 99% statement coverage (367 of 370 statements). The uncovered statements are in the `__main__.py` entry point. See [README.md](README.md#testing) for standard commands.
+The offline suite contains 228 tests. `uv run pytest --cov=helpdesk --cov-report=term-missing` passes all of them with 99% statement coverage (371 of 374 statements). The uncovered statements are in the `__main__.py` entry point. See [README.md](README.md#testing) for standard commands.
 
 Refund tests cover the supplied bookings, inclusive thresholds and one minute below them, non-cancellable statuses, voucher payments, rounding, time zones and invalid input. Booking and retrieval tests cover normalization, missing records, ranking and price-query regressions. Registry tests check malformed JSON, unknown or missing arguments and attempts to override bound data or time.
 
@@ -108,7 +108,7 @@ Refund tests cover the supplied bookings, inclusive thresholds and one minute be
 
 ### Method
 
-`eval/questions.json` contains 20 authored cases: 9 refund questions, 3 booking questions, 3 policy questions and 5 refusal or escalation cases. They include both refund boundaries, voucher payment, missing and unknown booking IDs, a Polish question, hypothetical cancellation and prompt-injection attempts. Five cases are marked `added_after_run` because they were added after run 1.
+`eval/questions.json` contains 22 authored cases: 10 refund questions, 3 booking questions, 4 policy questions and 5 refusal or escalation cases. They include both refund boundaries, voucher payment, missing and unknown booking IDs, Polish refund and policy questions, hypothetical and past-date cancellation and prompt-injection attempts. Cases marked `added_after_run` record the run after which they were added: five after run 1 and two after run 2.
 
 `eval/run_eval.py` calls the real agent repeatedly and records answers plus full tool arguments and results. Checks cover expected tools, expected refund totals, required or forbidden phrases with word boundaries, forbidden amounts and limits on nonzero amounts. Grounding checks require each parsed nonzero monetary amount to occur in tool-returned money fields or policy text. Zero amounts are excluded from grounding and nonzero-amount limits.
 
@@ -153,6 +153,7 @@ I used Claude Code as the main coding assistant and Codex for a second review of
 
 ## Limitations
 
+- Keyword retrieval matches English words only. Questions in other languages depend on the model sending English keywords, which the tool schema asks for but cannot enforce.
 - Keyword retrieval is specific to this small corpus. Unrecognized paraphrases, typos or topics mentioned only in passing can miss relevant sections or retrieve unrelated text. For example, opening hours are recognised from "open" or phrases like "your hours", not from every wording.
 - There is no customer identity verification or rate limiting. Anyone with a booking number can request it; the supplied data contains no customer identity fields.
 - Each CLI question starts a new conversation. `run_agent` accepts history, but the CLI does not persist it.

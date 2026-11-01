@@ -80,7 +80,7 @@ commit. A label marked STALE belongs to an older commit, is ignored by the adjus
 
 The table above was generated before triage, so it shows "untriaged". Reading the one failed attempt by hand:
 
-- **polish-refund, run 2: check too strict.** The answer was correct: "**340.00** EUR", with the 40.00 + 300.00 breakdown and the card refund. The markdown bold sits between the number and the currency, so the amount parser did not read 340.00. Counted as a pass by manual assessment, the result is 60 / 60; the runner's adjusted score, which excludes such attempts, is 59 / 59. The parser was not changed after seeing this result; it is listed as a known gap in SOLUTION.md.
+- **polish-refund, run 2: check too strict.** The answer was correct: "**340.00** EUR", with the 40.00 + 300.00 breakdown and the card refund. The markdown bold sits between the number and the currency, so the amount parser did not read 340.00. Counted as a pass by manual assessment, the result is 60 / 60; the runner's adjusted score, which excludes such attempts, is 59 / 59. The parser was left unchanged for this triage and fixed afterwards in a separate commit (see below).
 
 ## Re-scoring after the parser fix
 

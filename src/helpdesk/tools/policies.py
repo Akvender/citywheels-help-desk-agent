@@ -7,10 +7,11 @@ explain: each distinct query word (or synonym) found in a section's heading adds
 3, found in its body adds 1. A section needs a total score of at least 2.
 
 Known limits: no real understanding of meaning (only the small SYNONYM_GROUPS
-table), no typo tolerance, and questions about things the shop never wrote down
-can still match by accident. "What are your hours?" finds nothing, because "hour"
-is deliberately not an opening-hours synonym: it hijacked every "price per hour"
-question. Next step if the policies grow: embeddings or a hybrid with BM25 ranking.
+table), no typo tolerance, English only (the tool schema asks the model for English
+keywords), and questions about things the shop never wrote down can still match by
+accident. "hour" is deliberately not an opening-hours synonym: it hijacked every
+"price per hour" question, so only phrases like "your hours" reach opening hours.
+Next step if the policies grow: embeddings or a hybrid with BM25 ranking.
 """
 
 import re
@@ -27,8 +28,12 @@ NO_RESULTS_NOTE = "No relevant policy found."
 STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "do", "does", "can", "i", "my", "me", "you", "your",
     "we", "to", "of", "on", "in", "at", "for", "and", "or", "it", "this", "that", "what",
-    "which", "how", "when", "who", "get", "want", "there",
+    "which", "how", "when", "who", "get", "want", "there", "have",
 }  # fmt: skip
+
+# "can I rent an e-bike at 15?" is an age question, though it never says "age". "at 10" alone is not:
+# "can I pick up the bike at 10?" and "rent at 10 am" ask about a time.
+_AGE_QUESTION = re.compile(r"\b(?:rent|renting|ride|riding)\b.*\bat \d{1,2}\b(?![:.]\d)(?!\s*[ap]m\b)")
 
 # Every question in this shop is about bike rental, so these words say nothing. They are dropped from
 # both queries and sections. The "Bike rental" heading therefore never scores; its price table is found
@@ -72,8 +77,7 @@ def _tokens(text: object) -> set[str]:
 
 def _query_tokens(query: object) -> set[str]:
     words = _tokens(query) - GENERIC_WORDS
-    # "can I rent an e-bike at 15?" is an age question, though it never says "age".
-    if isinstance(query, str) and re.search(r"\bat \d{1,2}\b(?![:.]\d)", query.lower()):
+    if isinstance(query, str) and _AGE_QUESTION.search(query.lower()):
         words.add("age")
     # "What are your hours?" means opening hours; "per hour" and "48 hours before" do not.
     if isinstance(query, str) and re.search(r"\b(?:your|opening|business|shop|store) hours\b", query.lower()):

@@ -152,6 +152,24 @@ def test_off_topic_has_no_results_and_a_note(sections, query):
     assert result == {"query": query, "results": [], "note": "No relevant policy found."}
 
 
+def test_common_verb_in_headings_is_not_evidence(sections):
+    # "have" appears in two headings; it once sent this question to the helmet section.
+    assert search_policies(sections, "Do you have parking for cars?")["results"] == []
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["Can I pick up the bike at 10?", "Can I return the bike at 18?", "Can I rent a bike at 10 am?"],
+)
+def test_clock_times_are_not_age_questions(sections, query):
+    assert "Are there age limits?" not in [r["heading"] for r in search_policies(sections, query)["results"]]
+
+
+@pytest.mark.parametrize("query", ["Can I rent an e-bike at 15?", "Can I ride a city bike at 12?"])
+def test_rent_or_ride_at_a_number_is_an_age_question(sections, query):
+    assert "Are there age limits?" in [r["heading"] for r in search_policies(sections, query)["results"]]
+
+
 def test_ebike_is_not_just_bike(sections):
     result = search_policies(sections, "ebike")
 

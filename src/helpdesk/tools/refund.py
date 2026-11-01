@@ -111,5 +111,7 @@ def calculate_refund(
             }
         if when.tzinfo is None:
             return {"booking_id": normalized, "error": "cancel_at must include a time zone, e.g. +02:00."}
+        if when < now:  # the past cannot be cancelled in, and it would show a higher refund than is available
+            return {"booking_id": normalized, "error": "cancel_at must not be before the current time."}
 
     return {"booking_id": normalized, "found": True, **compute_refund(booking, when, now)}

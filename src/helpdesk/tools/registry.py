@@ -25,7 +25,12 @@ TOOL_SCHEMAS = [
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"query": {"type": "string", "description": "Keywords of the question."}},
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keywords of the question, in English: the shop rules are written in English.",
+                    }
+                },
                 "required": ["query"],
                 "additionalProperties": False,
             },

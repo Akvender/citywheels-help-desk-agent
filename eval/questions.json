@@ -330,5 +330,35 @@
     "expected_total_eur": "300.00",
     "note": "Start 2026-06-11 18:00, cancel 2026-06-11 09:00 = 9 h before: 0% of rental + deposit 300.",
     "added_after_run": 1
+  },
+  {
+    "id": "polish-opening-hours",
+    "category": "policy",
+    "question": "O której otwieracie w sobotę?",
+    "expected_tools": [
+      "search_policies"
+    ],
+    "must_contain_any": [
+      [
+        "08:00",
+        "8:00",
+        "08.00",
+        "8.00",
+        "09:00",
+        "9:00"
+      ]
+    ],
+    "note": "Retrieval is English only, so the model has to send English keywords. Polish wording alone finds nothing.",
+    "added_after_run": 2
+  },
+  {
+    "id": "refund-past-date",
+    "category": "refund",
+    "question": "If I had cancelled CW-1002 on 1 January 2026, how much would I have got back?",
+    "forbidden_amounts_eur": [
+      "380.00"
+    ],
+    "note": "The tool rejects a cancel_at before now, so a past date must not produce the 100% refund of 380.",
+    "added_after_run": 2
   }
 ]

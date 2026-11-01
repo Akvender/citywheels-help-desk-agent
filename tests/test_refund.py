@@ -169,6 +169,25 @@ def test_naive_or_malformed_cancel_at_returns_error(bad):
     assert result["booking_id"] == "CW-1001"
 
 
+@pytest.mark.parametrize(
+    "past", ["2026-01-01T09:00:00+02:00", "2026-06-10T08:59:59+02:00", "2026-06-10T06:59:59+00:00"]
+)
+def test_cancel_at_before_now_returns_error_and_no_amount(past):
+    # A past moment would otherwise turn CW-1002's 340.00 EUR into a 100% refund of 380.00 EUR.
+    result = calculate_refund(BOOKINGS, "CW-1002", cancel_at=past)
+
+    assert result["booking_id"] == "CW-1002"
+    assert "error" in result
+    assert "total_refund_eur" not in result
+
+
+def test_cancel_at_equal_to_now_in_another_timezone_is_allowed():
+    result = calculate_refund(BOOKINGS, "CW-1002", cancel_at="2026-06-10T07:00:00+00:00")
+
+    assert result["total_refund_eur"] == "340.00"
+    assert "hypothetical" not in result
+
+
 def test_explicit_now_is_used_as_default_cancel_at():
     later = NOW + timedelta(hours=30)
 

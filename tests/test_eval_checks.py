@@ -302,6 +302,6 @@ def test_load_triage_rejects_unknown_label(tmp_path):
 def test_shipped_questions_and_triage_are_consistent():
     cases = json.loads(run_eval.QUESTIONS_FILE.read_text(encoding="utf-8"))
     ids = [c["id"] for c in cases]
-    assert len(ids) == 20 and len(ids) == len(set(ids))
+    assert len(ids) == 22 and len(ids) == len(set(ids))
     assert set(run_eval.load_triage()) <= set(ids)
-    assert sum("added_after_run" in c for c in cases) == 5
+    assert sum("added_after_run" in c for c in cases) == 7

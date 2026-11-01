@@ -95,6 +95,12 @@ def test_cancel_at_description_explains_format_and_relative_dates():
     assert "current time" in description
 
 
+def test_search_query_description_asks_for_english_keywords():
+    # The policies are in English and retrieval only matches words, so a Polish query finds nothing.
+    description = schema_of("search_policies")["parameters"]["properties"]["query"]["description"]
+    assert "English" in description
+
+
 def test_non_json_values_are_stringified():
     tools = {"when": lambda: {"at": datetime(2026, 1, 1)}}
     assert json.loads(dispatch(tools, "when", "{}"))["at"].startswith("2026-01-01")

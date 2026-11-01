@@ -19,7 +19,7 @@
   },
   "polish-refund": {
     "label": "check too strict",
-    "comment": "The answer was correct ('**340.00** EUR', plus the 40.00 + 300.00 breakdown and the card refund), but the markdown bold sits between the number and the currency, so the amount parser did not read 340.00. Not fixed silently: left as a known parser gap.",
+    "comment": "The answer was correct ('**340.00** EUR', plus the 40.00 + 300.00 breakdown and the card refund), but the markdown bold sits between the number and the currency, so the amount parser did not read 340.00. Not fixed silently: the parser was fixed in a later visible commit and the saved answers were re-scored.",
     "run": 2,
     "commit": "435f7e7"
   }
