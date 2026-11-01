@@ -153,7 +153,7 @@ I used Claude Code as the main coding assistant and Codex for a second review of
 
 ## Limitations
 
-- Keyword retrieval is specific to this small corpus. Unrecognized paraphrases, typos or topics mentioned only in passing can miss relevant sections or retrieve unrelated text. For example, "children" does not reach the kids-bike price, and opening hours are recognised from "open" or phrases like "your hours", not from every wording.
+- Keyword retrieval is specific to this small corpus. Unrecognized paraphrases, typos or topics mentioned only in passing can miss relevant sections or retrieve unrelated text. For example, opening hours are recognised from "open" or phrases like "your hours", not from every wording.
 - There is no customer identity verification or rate limiting. Anyone with a booking number can request it; the supplied data contains no customer identity fields.
 - Each CLI question starts a new conversation. `run_agent` accepts history, but the CLI does not persist it.
 - Final text is not validated against tool results at runtime. Prompt constraints and evaluation do not guarantee that the model follows every rule.
